@@ -1,3 +1,8 @@
+# W.I.L.D. CARE: Post-Flood Disease Monitoring System
+# Copyright (c) 2026 Jairus Corro. All rights reserved.
+# Licensed under the W.I.L.D. CARE Educational License (see LICENSE.txt). Provided "AS IS", without warranty.
+# Not a medical device. Do not use it for real clinical or emergency decisions.
+
 import csv
 import hashlib
 import hmac
