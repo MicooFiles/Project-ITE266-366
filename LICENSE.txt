@@ -1,42 +1,21 @@
-W.I.L.D. CARE EDUCATIONAL LICENSE
-Post-Flood Disease Monitoring System
+MIT License
 
-Copyright (c) 2026 Jairus Corro. All rights reserved.
+Copyright (c) 2026 Jairus Mj Paul B. Corro
 
-1. WHAT YOU MAY DO
-   You may view, run and study this software, and evaluate it for coursework,
-   teaching and non-commercial demonstration, provided that every copyright
-   notice and this license stay intact.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-2. WHAT YOU MAY NOT DO
-   Without written permission from the copyright holder you may not:
-   (a) copy, publish, sell, sublicense or distribute the software or any part of it;
-   (b) modify it and present the result as your own work;
-   (c) use it commercially or in any real clinical, public-health or emergency setting;
-   (d) remove, alter or obscure copyright notices, authorship marks or this license.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-3. OWNERSHIP
-   The software is licensed, not sold. All rights not expressly granted are reserved.
-
-4. NO WARRANTY
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
-   ACCURACY OF DATA AND NON-INFRINGEMENT.
-
-5. LIMITATION OF LIABILITY
-   TO THE FULLEST EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER IS NOT LIABLE FOR
-   ANY CLAIM, DAMAGES OR LOSS (INCLUDING LOSS OF DATA, ILLNESS, INJURY OR
-   PROPERTY DAMAGE) ARISING FROM THE USE OF, OR INABILITY TO USE, THE SOFTWARE.
-
-6. MEDICAL AND EMERGENCY DISCLAIMER
-   This is a student project. It is not a medical device and gives no medical
-   advice. The sample flood and disease figures are for demonstration only. In an
-   emergency call 911 or your local health authority.
-
-7. THIRD-PARTY COMPONENTS
-   CustomTkinter, Pillow and Python are covered by their own licenses.
-
-8. TERMINATION
-   This license ends automatically if you breach it.
-
-This text is a plain-language template, not legal advice.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
