@@ -1,4 +1,5 @@
 # W.I.L.D. CARE: Post-Flood Disease Monitoring System
+# MIT LISENCE
 # Copyright (c) 2026 Jairus Corro. All rights reserved.
 # Licensed under the W.I.L.D. CARE Educational License (see LICENSE.txt). Provided "AS IS", without warranty.
 # Not a medical device. Do not use it for real clinical or emergency decisions.
@@ -219,10 +220,10 @@ _FLOOD_SEED = [
 
 # Demonstration figures per area, in AREAS order: (cases, cases last year, deaths). Replace with RHU/PHO data.
 _DISEASE_SEED = {
+    "Waterborne Disease": [(96, 121, 1), (58, 74, 0), (41, 52, 1), (47, 60, 0), (52, 63, 1), (30, 35, 0), (28, 37, 0)],
+    "Influenza": [(220, 190, 1), (131, 118, 0), (92, 85, 0), (105, 99, 1), (98, 90, 0), (67, 60, 0), (74, 66, 0)],
     "Leptospirosis": [(142, 96, 6), (88, 61, 4), (57, 49, 2), (64, 70, 3), (73, 52, 3), (49, 33, 2), (36, 41, 1)],
     "Dengue": [(310, 402, 2), (176, 215, 1), (121, 160, 0), (148, 190, 1), (133, 171, 1), (90, 118, 0), (84, 102, 0)],
-    "Bloody diarrhea": [(96, 121, 1), (58, 74, 0), (41, 52, 1), (47, 60, 0), (52, 63, 1), (30, 35, 0), (28, 37, 0)],
-    "Flu-like illness": [(220, 190, 1), (131, 118, 0), (92, 85, 0), (105, 99, 1), (98, 90, 0), (67, 60, 0), (74, 66, 0)],
 }
 SAMPLE_SOURCE = "Sample data for demonstration, we used some information to demonstrate for our student project. Replace with RHU / Provincial Health Office figures / DOH / PHILSTAR."
 

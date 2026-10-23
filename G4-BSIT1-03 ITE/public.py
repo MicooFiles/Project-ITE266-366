@@ -1,4 +1,5 @@
 # W.I.L.D. CARE: Post-Flood Disease Monitoring System
+# MIT LISENCE
 # Copyright (c) 2026 Jairus Corro. All rights reserved.
 # Licensed under the W.I.L.D. CARE Educational License (see LICENSE.txt). Provided "AS IS", without warranty.
 # Not a medical device. Do not use it for real clinical or emergency decisions.
@@ -12,7 +13,7 @@ import customtkinter
 
 import group4database
 import ui_theme as ui
-from ui_theme import C
+from ui_theme import COLOR_THEME_NAMIN
 
 SYMPTOMS = ["Fever", "Muscle pain", "Diarrhea", "Cough", "Skin rash", "Other"]
 HOTLINES = [("National Emergency Helpline", "911"),
@@ -67,7 +68,7 @@ class PatientPortalWindow:
 
     # ── Shell ────────────────────────────────────────────────────────────────
     def build_sidebar(self):
-        side = customtkinter.CTkFrame(self.root, fg_color=C["side"], corner_radius=0, width=260)
+        side = customtkinter.CTkFrame(self.root, fg_color=COLOR_THEME_NAMIN["side"], corner_radius=0, width=260)
         side.grid(row=0, column=0, sticky="nsew")
         side.pack_propagate(False)
 
@@ -81,7 +82,7 @@ class PatientPortalWindow:
         ui.label(brand, "W.I.L.D. CARE", "heading", "side_text", anchor="w").pack(fill="x")
         ui.label(brand, "Resident health and flood portal", "small", "side_muted", anchor="w").pack(fill="x")
 
-        who = customtkinter.CTkFrame(side, fg_color=C["side_hover"], corner_radius=ui.R_CTRL)
+        who = customtkinter.CTkFrame(side, fg_color=COLOR_THEME_NAMIN["side_hover"], corner_radius=ui.R_CTRL)
         who.pack(fill="x", padx=16, pady=(0, 18))
         ui.label(who, "Signed in as", "small", "side_muted", anchor="w").pack(fill="x", padx=14, pady=(10, 0))
         ui.label(who, self.full_name, "bodybold", "side_text", anchor="w", wraplength=200, justify="left").pack(fill="x", padx=14, pady=(0, 10))
@@ -92,7 +93,7 @@ class PatientPortalWindow:
             btn.pack(fill="x", padx=16, pady=2)
             self.nav[key] = btn
 
-        help_card = customtkinter.CTkFrame(side, fg_color=C["side_danger_bg"], border_width=1, border_color=C["side_danger"],
+        help_card = customtkinter.CTkFrame(side, fg_color=COLOR_THEME_NAMIN["side_danger_bg"], border_width=1, border_color=COLOR_THEME_NAMIN["side_danger"],
                                            corner_radius=ui.R_CARD)
         help_card.pack(fill="x", padx=16, pady=(22, 0))
         ui.label(help_card, "Need urgent help?", "bodybold", "side_text", anchor="w").pack(fill="x", padx=14, pady=(12, 2))
@@ -185,7 +186,7 @@ class PatientPortalWindow:
         for name, tone in GAUGE:
             col = ui.row(gauge)
             col.pack(side="left", fill="x", expand=True, padx=3)
-            bar_ = customtkinter.CTkFrame(col, width=1, height=10, corner_radius=4, fg_color=C["neutral"])
+            bar_ = customtkinter.CTkFrame(col, width=1, height=10, corner_radius=4, fg_color=COLOR_THEME_NAMIN["neutral"])
             bar_.pack(fill="x", pady=(0, 5))
             lbl = ui.label(col, name, "small", "muted")
             lbl.pack()
@@ -227,8 +228,8 @@ class PatientPortalWindow:
         else:
             tone, text = "ok", "No critical flooding reported right now. Stay alert and check back often."
         bg, fg = ui.TONES[tone]
-        self.banner.configure(fg_color=C[bg], border_color=C[fg])
-        self.lbl_banner_title.configure(text=text, text_color=C[fg])
+        self.banner.configure(fg_color=COLOR_THEME_NAMIN[bg], border_color=COLOR_THEME_NAMIN[fg])
+        self.lbl_banner_title.configure(text=text, text_color=COLOR_THEME_NAMIN[fg])
 
     def on_flood_select(self, _event=None):
         sel = self.flood_tree.selection()
@@ -238,7 +239,7 @@ class PatientPortalWindow:
     def show_flood(self, rec):
         if not rec:
             self.lbl_place.configure(text="No matching areas")
-            self.lbl_depth.configure(text="—", text_color=C["muted"])
+            self.lbl_depth.configure(text="—", text_color=COLOR_THEME_NAMIN["muted"])
             self.lbl_cond.configure(text="")
             self.lbl_tip.configure(text="Try a different area or search term.")
             stage = None
@@ -246,13 +247,13 @@ class PatientPortalWindow:
             stage = gauge_stage(rec[3])
             tone = dict(GAUGE)[stage]
             self.lbl_place.configure(text=group4database.place_label(rec[1], rec[2]))
-            self.lbl_depth.configure(text=f"{rec[3]:.2f} m", text_color=C[tone])
+            self.lbl_depth.configure(text=f"{rec[3]:.2f} m", text_color=COLOR_THEME_NAMIN[tone])
             self.lbl_cond.configure(text=f"{stage} deep · {rec[8].lower()} · {rec[6].lower()}")
             self.lbl_tip.configure(text=rec[9] or "Avoid contaminated water.")
         for name, (bar_, lbl, tone) in self.gauge.items():
             active = name == stage
-            bar_.configure(fg_color=C[tone] if active else C["neutral"], height=16 if active else 10)
-            lbl.configure(text_color=C[tone] if active else C["muted"], font=ui.FONTS["smallbold" if active else "small"])
+            bar_.configure(fg_color=COLOR_THEME_NAMIN[tone] if active else COLOR_THEME_NAMIN["neutral"], height=16 if active else 10)
+            lbl.configure(text_color=COLOR_THEME_NAMIN[tone] if active else COLOR_THEME_NAMIN["muted"], font=ui.FONTS["smallbold" if active else "small"])
 
     # ── Report illness & my cases ────────────────────────────────────────────
     def build_report_page(self, page):
@@ -354,7 +355,7 @@ class PatientPortalWindow:
             track.pack(fill="x", padx=14, pady=(0, 12))
             track.grid_columnconfigure((0, 1, 2), weight=1, uniform="track")
             for i, text in enumerate(steps):
-                customtkinter.CTkFrame(track, width=1, height=5, corner_radius=3, fg_color=C[tone] if i <= stage else C["neutral"]).grid(
+                customtkinter.CTkFrame(track, width=1, height=5, corner_radius=3, fg_color=COLOR_THEME_NAMIN[tone] if i <= stage else COLOR_THEME_NAMIN["neutral"]).grid(
                     row=0, column=i, sticky="ew", padx=2)
                 ui.label(track, text, "smallbold" if i == stage else "small", "text" if i == stage else "muted").grid(row=1, column=i, pady=(4, 0))
 
@@ -398,7 +399,7 @@ class PatientPortalWindow:
 
             head = ui.row(box)
             head.pack(fill="x")
-            badge = customtkinter.CTkFrame(head, fg_color=C["accent_soft"], width=36, height=36, corner_radius=ui.R_CTRL)
+            badge = customtkinter.CTkFrame(head, fg_color=COLOR_THEME_NAMIN["accent_soft"], width=36, height=36, corner_radius=ui.R_CTRL)
             badge.pack(side="left", padx=(0, 10))
             badge.pack_propagate(False)
             ui.label(badge, letter, "heading", "accent_text").place(relx=0.5, rely=0.5, anchor="center")
@@ -419,7 +420,7 @@ class PatientPortalWindow:
                 line = ui.row(box)
                 line.pack(fill="x", pady=2)
                 ui.label(line, area, "small", anchor="w", width=110).pack(side="left")
-                bar_ = customtkinter.CTkProgressBar(line, height=6, corner_radius=3, fg_color=C["neutral"], progress_color=C["accent"])
+                bar_ = customtkinter.CTkProgressBar(line, height=6, corner_radius=3, fg_color=COLOR_THEME_NAMIN["neutral"], progress_color=COLOR_THEME_NAMIN["accent"])
                 bar_.set(cases / peak)
                 bar_.pack(side="left", fill="x", expand=True, padx=8)
                 ui.label(line, f"{cases:,}", "smallbold", anchor="e", width=44).pack(side="right")
