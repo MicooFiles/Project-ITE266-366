@@ -8,7 +8,7 @@ from PIL import Image
 
 R_CARD, R_CTRL = 12, 8      # one corner radius for panels, one for controls
 
-C = {
+COLOR_THEME_NAMIN = {
     "bg": ("#EDF0F5", "#0D1522"), "card": ("#FFFFFF", "#141E30"), "inset": ("#F3F5F9", "#1A2640"),
     "input": ("#FFFFFF", "#0F1A2C"), "border": ("#D8DEE8", "#243049"),
     "text": ("#14203A", "#E5EAF3"), "muted": ("#5A6781", "#8C99B3"),
@@ -86,21 +86,21 @@ def setup(root):
         FONTS[name] = customtkinter.CTkFont(family=family, size=scaled_size(size), weight=weight)
     ttk.Style().theme_use("clam")
     style_ttk()
-    root.configure(fg_color=C["bg"])
+    root.configure(fg_color=COLOR_THEME_NAMIN["bg"])
 
 
 def style_ttk():
     s, p = ttk.Style(), pick
-    s.configure("W.Treeview", background=p(C["card"]), fieldbackground=p(C["card"]), foreground=p(C["text"]),
+    s.configure("W.Treeview", background=p(COLOR_THEME_NAMIN["card"]), fieldbackground=p(COLOR_THEME_NAMIN["card"]), foreground=p(COLOR_THEME_NAMIN["text"]),
                 borderwidth=0, rowheight=max(30, round(34 * _state["scale"])), font=FONTS["body"])
     s.layout("W.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
-    s.map("W.Treeview", background=[("selected", p(C["accent_soft"]))], foreground=[("selected", p(C["text"]))])
-    s.configure("W.Treeview.Heading", background=p(C["inset"]), foreground=p(C["muted"]), font=FONTS["smallbold"],
+    s.map("W.Treeview", background=[("selected", p(COLOR_THEME_NAMIN["accent_soft"]))], foreground=[("selected", p(COLOR_THEME_NAMIN["text"]))])
+    s.configure("W.Treeview.Heading", background=p(COLOR_THEME_NAMIN["inset"]), foreground=p(COLOR_THEME_NAMIN["muted"]), font=FONTS["smallbold"],
                 relief="flat", borderwidth=0, padding=(10, 8))
-    s.map("W.Treeview.Heading", background=[("active", p(C["neutral"]))])
-    s.configure("Vertical.TScrollbar", background=p(C["neutral"]), troughcolor=p(C["card"]), bordercolor=p(C["card"]),
-                arrowcolor=p(C["muted"]), relief="flat", arrowsize=12)
-    s.map("Vertical.TScrollbar", background=[("active", p(C["neutral_hover"]))])
+    s.map("W.Treeview.Heading", background=[("active", p(COLOR_THEME_NAMIN["neutral"]))])
+    s.configure("Vertical.TScrollbar", background=p(COLOR_THEME_NAMIN["neutral"]), troughcolor=p(COLOR_THEME_NAMIN["card"]), bordercolor=p(COLOR_THEME_NAMIN["card"]),
+                arrowcolor=p(COLOR_THEME_NAMIN["muted"]), relief="flat", arrowsize=12)
+    s.map("Vertical.TScrollbar", background=[("active", p(COLOR_THEME_NAMIN["neutral_hover"]))])
 
 
 def notify():
@@ -133,12 +133,12 @@ def on_theme_change(fn):
 
 # ── Widget factories ───────────────────────────────────────────────────────
 def card(parent, **kw):
-    kw.setdefault("fg_color", C["card"])
-    return customtkinter.CTkFrame(parent, border_width=1, border_color=C["border"], corner_radius=R_CARD, **kw)
+    kw.setdefault("fg_color", COLOR_THEME_NAMIN["card"])
+    return customtkinter.CTkFrame(parent, border_width=1, border_color=COLOR_THEME_NAMIN["border"], corner_radius=R_CARD, **kw)
 
 
 def inset(parent, **kw):
-    kw.setdefault("fg_color", C["inset"])
+    kw.setdefault("fg_color", COLOR_THEME_NAMIN["inset"])
     return customtkinter.CTkFrame(parent, corner_radius=R_CTRL, **kw)
 
 
@@ -147,22 +147,22 @@ def row(parent, **kw):
 
 
 def divider(parent, color="border"):
-    return customtkinter.CTkFrame(parent, fg_color=C[color], width=1, height=1, corner_radius=0)
+    return customtkinter.CTkFrame(parent, fg_color=COLOR_THEME_NAMIN[color], width=1, height=1, corner_radius=0)
 
 
 def label(parent, text="", font="body", color="text", **kw):
-    return customtkinter.CTkLabel(parent, text=text, font=FONTS[font], text_color=C[color], **kw)
+    return customtkinter.CTkLabel(parent, text=text, font=FONTS[font], text_color=COLOR_THEME_NAMIN[color], **kw)
 
 
 _BUTTONS = {
-    "primary": dict(fg_color=C["accent"], hover_color=C["accent_hover"], text_color=C["on_accent"]),
-    "secondary": dict(fg_color=C["neutral"], hover_color=C["neutral_hover"], text_color=C["text"]),
-    "danger": dict(fg_color=C["danger_solid"], hover_color=C["danger_hover"], text_color="#FFFFFF"),
-    "ghost": dict(fg_color="transparent", hover_color=C["neutral"], text_color=C["text"], border_width=1,
-                  border_color=C["border"]),
-    "link": dict(fg_color="transparent", hover_color=C["accent_soft"], text_color=C["accent_text"]),
-    "nav": dict(fg_color="transparent", hover_color=C["side_hover"], text_color="#FFFFFF"),
-    "nav_active": dict(fg_color=C["side_active"], hover_color=C["side_active"], text_color="#FFFFFF"),
+    "primary": dict(fg_color=COLOR_THEME_NAMIN["accent"], hover_color=COLOR_THEME_NAMIN["accent_hover"], text_color=COLOR_THEME_NAMIN["on_accent"]),
+    "secondary": dict(fg_color=COLOR_THEME_NAMIN["neutral"], hover_color=COLOR_THEME_NAMIN["neutral_hover"], text_color=COLOR_THEME_NAMIN["text"]),
+    "danger": dict(fg_color=COLOR_THEME_NAMIN["danger_solid"], hover_color=COLOR_THEME_NAMIN["danger_hover"], text_color="#FFFFFF"),
+    "ghost": dict(fg_color="transparent", hover_color=COLOR_THEME_NAMIN["neutral"], text_color=COLOR_THEME_NAMIN["text"], border_width=1,
+                  border_color=COLOR_THEME_NAMIN["border"]),
+    "link": dict(fg_color="transparent", hover_color=COLOR_THEME_NAMIN["accent_soft"], text_color=COLOR_THEME_NAMIN["accent_text"]),
+    "nav": dict(fg_color="transparent", hover_color=COLOR_THEME_NAMIN["side_hover"], text_color="#FFFFFF"),
+    "nav_active": dict(fg_color=COLOR_THEME_NAMIN["side_active"], hover_color=COLOR_THEME_NAMIN["side_active"], text_color="#FFFFFF"),
 }
 
 
@@ -177,8 +177,8 @@ def restyle(button_widget, kind):
 
 
 def entry(parent, placeholder="", height=38, **kw):
-    opts = dict(placeholder_text=placeholder, font=FONTS["body"], height=height, fg_color=C["input"],
-                border_color=C["border"], border_width=1, text_color=C["text"], placeholder_text_color=C["muted"],
+    opts = dict(placeholder_text=placeholder, font=FONTS["body"], height=height, fg_color=COLOR_THEME_NAMIN["input"],
+                border_color=COLOR_THEME_NAMIN["border"], border_width=1, text_color=COLOR_THEME_NAMIN["text"], placeholder_text_color=COLOR_THEME_NAMIN["muted"],
                 corner_radius=R_CTRL)
     return customtkinter.CTkEntry(parent, **{**opts, **kw})
 
@@ -186,9 +186,9 @@ def entry(parent, placeholder="", height=38, **kw):
 def combo(parent, values, default=None, height=38, **kw):
     box = customtkinter.CTkComboBox(
         parent, values=list(values), font=FONTS["body"], dropdown_font=FONTS["body"], height=height, state="readonly",
-        fg_color=C["input"], border_color=C["border"], border_width=1, text_color=C["text"],
-        button_color=C["neutral"], button_hover_color=C["neutral_hover"], dropdown_fg_color=C["card"],
-        dropdown_text_color=C["text"], dropdown_hover_color=C["neutral"], corner_radius=R_CTRL, **kw)
+        fg_color=COLOR_THEME_NAMIN["input"], border_color=COLOR_THEME_NAMIN["border"], border_width=1, text_color=COLOR_THEME_NAMIN["text"],
+        button_color=COLOR_THEME_NAMIN["neutral"], button_hover_color=COLOR_THEME_NAMIN["neutral_hover"], dropdown_fg_color=COLOR_THEME_NAMIN["card"],
+        dropdown_text_color=COLOR_THEME_NAMIN["text"], dropdown_hover_color=COLOR_THEME_NAMIN["neutral"], corner_radius=R_CTRL, **kw)
     box.set(default if default is not None else (list(values)[0] if values else ""))
     return box
 
@@ -206,16 +206,16 @@ def field(parent, text, kind="entry", values=None, default=None, placeholder="",
 
 def segmented(parent, values, command, current, **kw):
     seg = customtkinter.CTkSegmentedButton(
-        parent, values=list(values), command=command, font=FONTS["smallbold"], fg_color=C["seg_bg"],
-        selected_color=C["seg_sel"], selected_hover_color=C["seg_sel"], unselected_color=C["seg_bg"],
-        unselected_hover_color=C["neutral_hover"], text_color=C["text"], corner_radius=R_CTRL, **kw)
+        parent, values=list(values), command=command, font=FONTS["smallbold"], fg_color=COLOR_THEME_NAMIN["seg_bg"],
+        selected_color=COLOR_THEME_NAMIN["seg_sel"], selected_hover_color=COLOR_THEME_NAMIN["seg_sel"], unselected_color=COLOR_THEME_NAMIN["seg_bg"],
+        unselected_hover_color=COLOR_THEME_NAMIN["neutral_hover"], text_color=COLOR_THEME_NAMIN["text"], corner_radius=R_CTRL, **kw)
     seg.set(current)
     return seg
 
 
 def pill(parent, text, tone="neutral", font="smallbold"):
     bg, fg = TONES[tone]
-    return customtkinter.CTkLabel(parent, text=f"  {text}  ", font=FONTS[font], fg_color=C[bg], text_color=C[fg],
+    return customtkinter.CTkLabel(parent, text=f"  {text}  ", font=FONTS[font], fg_color=COLOR_THEME_NAMIN[bg], text_color=COLOR_THEME_NAMIN[fg],
                                   corner_radius=6, height=24)
 
 
@@ -253,7 +253,7 @@ def style_tags(tree, tags):
     def apply():
         try:
             for name, (bg, fg) in tags.items():
-                tree.tag_configure(name, background=pick(C[bg]), foreground=pick(C[fg]))
+                tree.tag_configure(name, background=pick(COLOR_THEME_NAMIN[bg]), foreground=pick(COLOR_THEME_NAMIN[fg]))
         except tkinter.TclError:
             pass
     apply()
@@ -301,7 +301,7 @@ def modal(root, title, width, height):
     """Dialog centred over `root`; returns the CTkToplevel."""
     top = customtkinter.CTkToplevel(root)
     top.title(title)
-    top.configure(fg_color=C["bg"])
+    top.configure(fg_color=COLOR_THEME_NAMIN["bg"])
     top.geometry(f"{width}x{height}")
     top.resizable(False, False)
     top.transient(root)
@@ -324,7 +324,7 @@ def modal(root, title, width, height):
 
 def text_size_control(parent, on_change=None):
     """'A A A' selector shared by every window."""
-    labels = {"A-": 0.9, "A": 1.0, "A+": 1.40}
+    labels = {"A-": 0.9, "A": 1.10, "A+": 2.00}
     current = min(labels, key=lambda k: abs(labels[k] - _state["scale"]))
 
     def changed(choice):

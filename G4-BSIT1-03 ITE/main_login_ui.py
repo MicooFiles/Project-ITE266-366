@@ -10,7 +10,7 @@ import customtkinter
 
 import group4database
 import ui_theme as ui
-from ui_theme import C
+from ui_theme import COLOR_THEME_NAMIN
 
 
 class LoginWindow:
@@ -28,6 +28,7 @@ class LoginWindow:
         self.build_hero()
         self.build_form()
         self.entry_user.focus_set()
+        self.root.resizable(False, False)
 
     def on_close(self):
         try:
@@ -38,7 +39,7 @@ class LoginWindow:
 
     # ── Brand panel ──────────────────────────────────────────────────────────
     def build_hero(self):
-        hero = customtkinter.CTkFrame(self.root, fg_color=C["side"], corner_radius=0, width=340)
+        hero = customtkinter.CTkFrame(self.root, fg_color=COLOR_THEME_NAMIN["side"], corner_radius=0, width=340)
         hero.grid(row=0, column=0, sticky="nsew")
         hero.pack_propagate(False)
 
@@ -61,7 +62,7 @@ class LoginWindow:
                             ("One sign-in", "Residents, health workers and administrators")):
             item = ui.row(hero)
             item.pack(fill="x", padx=32, pady=7)
-            customtkinter.CTkFrame(item, fg_color=C["side_accent"], width=3, height=34, corner_radius=2).pack(side="left", padx=(0, 12))
+            customtkinter.CTkFrame(item, fg_color=COLOR_THEME_NAMIN["side_accent"], width=3, height=34, corner_radius=2).pack(side="left", padx=(0, 12))
             col = ui.row(item)
             col.pack(side="left", fill="x")
             ui.label(col, title, "bodybold", "side_text", anchor="w").pack(fill="x")
@@ -145,7 +146,7 @@ class LoginWindow:
     def handle_signin(self):
         name, password = self.entry_user.get().strip(), self.entry_pass.get().strip()
         if not name or not password:
-            self.lbl_msg.configure(text="Please enter your full name and password.", text_color=C["danger"])
+            self.lbl_msg.configure(text="Please enter your full name and password.", text_color=COLOR_THEME_NAMIN["danger"])
             return
         ok, result = group4database.authenticate_user(name, password)
         if ok:
@@ -156,7 +157,7 @@ class LoginWindow:
         if "locked" in message.lower():
             messagebox.showerror("Account locked", message)
             message = "Account is temporarily locked for 15 minutes."
-        self.lbl_msg.configure(text=message, text_color=C["danger"])
+        self.lbl_msg.configure(text=message, text_color=COLOR_THEME_NAMIN["danger"])
         self.entry_pass.delete(0, "end")
 
     def handle_register(self):
@@ -264,7 +265,7 @@ class LoginWindow:
             ui.set_text(self.entry_user, who["value"])
             self.entry_pass.delete(0, "end")
             self.entry_pass.focus_set()
-            self.lbl_msg.configure(text="Password reset. Sign in with your new password.", text_color=C["ok"])
+            self.lbl_msg.configure(text="Password reset. Sign in with your new password.", text_color=COLOR_THEME_NAMIN["ok"])
 
         btn_send.configure(command=do_send)
         btn_reset.configure(command=do_reset)

@@ -23,10 +23,10 @@ HOTLINES = [("National Emergency Helpline", "911"),
             ("Philippine Red Cross (Dagupan)", "(075) 522-2092")]
 # disease key -> (badge letter, display name, cause, safety tip)
 WILD_META = {
-    "leptospirosis": ("L", "Leptospirosis", "From floodwater", "Waded in floodwater? Visit the health station within 24 to 48 hours."),
-    "dengue": ("D", "Dengue", "From mosquito bites", "Turn over, empty, dry and cover water containers."),
-    "waterborne": ("W", "Water-borne illness", "Dirty water or food", "Drink boiled or bottled water. Wash hands with soap."),
-    "influenza": ("I", "Influenza", "Fever, cough and infection", "Rest, drink fluids and see a doctor if fever lasts over 3 days."),
+    "waterborne disease": ("W", "Water-borne illness", "Cause: Dirty water or food contamination", "What to do?: Avoid Trigger. Drink Boil Water or bottled water. Strict Hand Hygiene "),
+    "influenza": ("I", "Influenza", "Fever, cough and infection", "What to do?: Rest, drink fluids and see a doctor if fever lasts over 3 days."),
+    "leptospirosis": ("L", "Leptospirosis", "Cause: From floodwater, animal urine contamination", "What to do?: Hydration. If symptoms occur seek immediate hospitalization."),
+    "dengue": ("D", "Dengue", "Cause: From mosquito bites that cary dengue virus", "What to do?: Medical Interventions, Aggressive Hydration, Rest and cover water containers. if red flags occurs seek emergency care immediately "),
 }
 GAUGE = [("Safe", "ok"), ("Knee", "yellow"), ("Waist", "orange"), ("Chest", "danger")]
 PAGES = [("flood", "Flood monitor"), ("report", "Report illness"), ("watch", "Disease watch")]

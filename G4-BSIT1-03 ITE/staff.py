@@ -12,7 +12,7 @@ import customtkinter
 
 import group4database
 import ui_theme as ui
-from ui_theme import C
+from ui_theme import COLOR_THEME_NAMIN
 
 ALL_AREAS = "All areas"
 HINT = "Drag rows to reorder the queue. Changes are saved automatically."
@@ -68,7 +68,7 @@ class AdminDashboardWindow:
 
     # ── Shell ────────────────────────────────────────────────────────────────
     def build_topbar(self):
-        bar = customtkinter.CTkFrame(self.root, fg_color=C["side"], corner_radius=0, height=64)
+        bar = customtkinter.CTkFrame(self.root, fg_color=COLOR_THEME_NAMIN["side"], corner_radius=0, height=64)
         bar.grid(row=0, column=0, sticky="ew")
         bar.pack_propagate(False)
         self.logo = ui.logo_image("wildcare_logo_shield.png", (30, 34))
@@ -204,7 +204,7 @@ class AdminDashboardWindow:
     @staticmethod
     def metric_tile(parent, col, title, tone):
         tile, value = ui.metric(parent, title, "0", tone)
-        tile.configure(fg_color=C["card"], border_width=1, border_color=C["border"])
+        tile.configure(fg_color=COLOR_THEME_NAMIN["card"], border_width=1, border_color=COLOR_THEME_NAMIN["border"])
         tile.grid(row=0, column=col, sticky="ew", padx=(0 if col == 0 else 5, 5 if col < 3 else 0))
         return value
 
@@ -324,12 +324,12 @@ class AdminDashboardWindow:
             self.tree.item(item, tags=tuple(tags))
 
     def flash(self, text, tone="muted", reset=True, delay=3500):
-        self.lbl_hint.configure(text=text, text_color=C[tone])
+        self.lbl_hint.configure(text=text, text_color=COLOR_THEME_NAMIN[tone])
         if self._hint_timer:
             self.root.after_cancel(self._hint_timer)
             self._hint_timer = None
         if reset:
-            self._hint_timer = self.root.after(delay, lambda: self.lbl_hint.configure(text=HINT, text_color=C["muted"]))
+            self._hint_timer = self.root.after(delay, lambda: self.lbl_hint.configure(text=HINT, text_color=COLOR_THEME_NAMIN["muted"]))
 
     def save_order(self, message, tone="ok"):
         ok, msg = group4database.update_patient_display_order(list(self.tree.get_children()))
