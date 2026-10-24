@@ -6,12 +6,14 @@
 
 import re
 import sys
+import threading
 from datetime import date, datetime
 from tkinter import filedialog, messagebox
 
 import customtkinter
 
 import group4database
+import notifications
 import ui_theme as ui
 from ui_theme import COLOR_THEME_NAMIN
 
@@ -50,6 +52,8 @@ class AdminDashboardWindow:
         self.selected_flood_id = None
         self._drag = {"item": "", "y": 0, "active": False}
         self._hint_timer = None
+        self._last_hotline = ""
+        self._last_facility = {}      # assessment -> facility, so repeat notices need less typing
 
         self.root = customtkinter.CTk()
         self.root.title(f"W.I.L.D. CARE — {user_info.get('role', 'Staff')} Portal")
@@ -171,7 +175,8 @@ class AdminDashboardWindow:
         self.search_by.pack(side="left", padx=(0, 8))
         ui.button(line, "Search", self.search_records, height=34, width=80).pack(side="left", padx=(0, 6))
         ui.button(line, "Reset", self.reset_search, kind="secondary", height=34, width=70).pack(side="left", padx=(0, 6))
-        ui.button(line, "Export CSV", self.export_csv, kind="secondary", height=34, width=100).pack(side="left")
+        ui.button(line, "Export CSV", self.export_csv, kind="secondary", height=34, width=100).pack(side="left", padx=(0, 6))
+        ui.button(line, "Notification log", self.open_notification_log, kind="secondary", height=34, width=122).pack(side="left")
 
         queue = ui.card(main)
         queue.grid(row=2, column=0, sticky="ew", pady=(0, 10))
@@ -428,7 +433,7 @@ class AdminDashboardWindow:
         rank = children.index(str(rec_id)) + 1 if str(rec_id) in children else 1
         flood = group4database.find_flood_for_location(place)
 
-        dlg = ui.modal(self.root, f"Clinical dossier — #{rec_id} {name}", 540, 560)
+        dlg = ui.modal(self.root, f"Clinical dossier — #{rec_id} {name}", 540, 620)
         panel = ui.card(dlg)
         panel.pack(fill="both", expand=True, padx=16, pady=16)
         box = ui.row(panel)
@@ -470,7 +475,250 @@ class AdminDashboardWindow:
                                                  ("Mark recovered", "Recovered", "primary"))):
             ui.button(actions, text, lambda v=value: set_status(v), kind=kind, height=36, font="smallbold").grid(
                 row=0, column=i, sticky="ew", padx=(0 if i == 0 else 3, 3 if i < 2 else 0))
+        ui.button(box, "Notify patient…", lambda: self.open_notify_dialog(vals), height=38).pack(fill="x", pady=(0, 6))
         ui.button(box, "Close", dlg.destroy, kind="ghost", height=32).pack(fill="x")
+
+    # ── Patient notifications ────────────────────────────────────────────────
+    @staticmethod
+    def set_box(box, text):
+        """Replace the contents of a read-only text box."""
+        box.configure(state="normal")
+        box.delete("1.0", "end")
+        box.insert("1.0", text)
+        box.configure(state="disabled")
+
+    @staticmethod
+    def text_box(parent, **kw):
+        return customtkinter.CTkTextbox(parent, font=ui.FONTS["body"], wrap="word", fg_color=COLOR_THEME_NAMIN["input"], border_width=1,
+                                        border_color=COLOR_THEME_NAMIN["border"], text_color=COLOR_THEME_NAMIN["text"],
+                                        corner_radius=ui.R_CTRL, **kw)
+
+    def open_notify_dialog(self, vals):
+        """Draft an SMS, email and in-app alert from the health worker's assessment, preview them, then send."""
+        rec_id, name, _age, _sex, _place, disease, case_status, _logged = vals[:8]
+        station = self.user_info.get("station_barangay", "")
+        email = group4database.get_resident_email(name)
+        first = notifications.PRIORITY if row_tag(vals) == "critical_obs" else notifications.CHECKUP   # same rule that colours the queue
+        dirty = {"facility": False}
+        busy = {"sending": False}
+
+        def default_facility(assessment):
+            return self._last_facility.get(assessment) or (station if assessment == notifications.CHECKUP else "")
+
+        dlg = ui.modal(self.root, f"Notify patient — {name}", 940, 760)
+        dlg.grid_columnconfigure(1, weight=1)
+        dlg.grid_rowconfigure(0, weight=1)
+
+        # form (left)
+        form = ui.card(dlg, width=370)
+        form.grid(row=0, column=0, sticky="ns", padx=(16, 8), pady=(16, 8))
+        form.pack_propagate(False)
+        box = ui.row(form)
+        box.pack(fill="both", expand=True, padx=18, pady=16)
+        ui.label(box, "Notify patient", "title", anchor="w").pack(fill="x")
+        ui.label(box, f"{name} · case #{rec_id} · {case_status}", "small", "muted", anchor="w", wraplength=330, justify="left").pack(fill="x", pady=(0, 12))
+
+        ui.label(box, "Health worker assessment", "label", "muted", anchor="w").pack(fill="x", pady=(0, 4))
+        f_status = ui.combo(box, notifications.STATUS_CHOICES, first, height=34, command=lambda _: on_status())
+        f_status.pack(fill="x", pady=(0, 6))
+        f_facility = ui.field(box, "Facility / station to go to", placeholder="e.g. Region 1 Medical Center", pady=(0, 6), height=34)
+        f_symptoms = ui.field(box, "Reason / symptoms logged", placeholder="e.g. Fever, muscle pain", pady=(0, 6), height=34)
+        f_instr = ui.field(box, "Instructions (optional)", placeholder="e.g. Visit within 2 days.", pady=(0, 6), height=34)
+        f_hotline = ui.field(box, "Contact number / hotline", placeholder="e.g. (075) 522-2405", pady=(0, 6), height=34)
+        f_mobile = ui.field(box, "Resident's mobile number (for SMS)", placeholder="e.g. 0917 123 4567", pady=(0, 6), height=34)
+        ui.set_text(f_symptoms, disease)
+        ui.set_text(f_hotline, self._last_hotline)
+        ui.set_text(f_facility, default_facility(first))
+
+        ui.divider(box).pack(fill="x", pady=8)
+        ui.label(box, "Send through", "label", "muted", anchor="w").pack(fill="x", pady=(0, 4))
+        ui.label(box, "✓  In-app alert (resident portal), always", "small", "text", anchor="w").pack(fill="x", pady=(0, 4))
+
+        def channel_box(text, enabled, checked):
+            check = customtkinter.CTkCheckBox(
+                box, text=text, font=ui.FONTS["small"], text_color=COLOR_THEME_NAMIN["text"], fg_color=COLOR_THEME_NAMIN["accent"],
+                hover_color=COLOR_THEME_NAMIN["accent_hover"], border_color=COLOR_THEME_NAMIN["border"], checkmark_color="#FFFFFF")
+            check.pack(anchor="w", pady=(0, 4))
+            if checked:
+                check.select()
+            if not enabled:
+                check.configure(state="disabled")
+            return check
+        chk_email = channel_box(f"Email to {group4database.mask_email(email)}" if email else "Email (no address on this resident's account)",
+                                bool(email), bool(email))
+        sms_ready = group4database.sms_configured()
+        chk_sms = channel_box("SMS to the mobile number above" if sms_ready else "SMS (gateway not set up)", sms_ready, False)
+        ui.label(box, "SMS is sent to Philippine mobile numbers only." if sms_ready else
+                 "No SMS gateway yet: use Copy SMS, or set WILDCARE_SMS_API_KEY and restart to send from here.",
+                 "small", "muted", anchor="w", wraplength=330, justify="left").pack(fill="x")
+
+        # preview (right)
+        right = ui.card(dlg)
+        right.grid(row=0, column=1, sticky="nsew", padx=(8, 16), pady=(16, 8))
+        pbox = ui.row(right)
+        pbox.pack(fill="both", expand=True, padx=18, pady=16)
+        head = ui.row(pbox)
+        head.pack(fill="x", pady=(0, 10))
+        ui.label(head, "Preview", "title", anchor="w").pack(side="left")
+        pill_slot = ui.row(head)
+        pill_slot.pack(side="right")
+        view = {"tab": "SMS", "pill": None, "data": None}
+        seg = ui.segmented(pbox, ["SMS", "Email", "In-app"], lambda tab: (view.update(tab=tab), render()), "SMS")
+        seg.pack(fill="x", pady=(0, 10))
+        preview = self.text_box(pbox)
+        preview.pack(fill="both", expand=True)
+        lbl_sms = ui.label(pbox, "", "small", "muted", anchor="w")
+        lbl_sms.pack(fill="x", pady=(8, 0))
+
+        def draft():
+            return notifications.build_notification(
+                name, f_status.get(), f_facility.get() or "[facility]", f_symptoms.get(), f_instr.get(), f_hotline.get() or "[hotline]")
+
+        def render(_event=None):
+            lbl_status.configure(text="")
+            data = view["data"] = draft()
+            if view["pill"]:
+                view["pill"].destroy()
+            view["pill"] = ui.pill(pill_slot, "URGENT" if data["urgent"] else "CHECK-UP", data["tone"])
+            view["pill"].pack()
+            tab = view["tab"]
+            if tab == "SMS":
+                text = data["sms"]
+            elif tab == "Email":
+                text = f"Subject: {data['email_subject']}\n\n{data['email_body']}"
+            else:
+                text = f"{data['push_title']}\n{data['push_body']}\n\n— Full message, opened in the portal —\n\n{data['email_body']}"
+            self.set_box(preview, text)
+            info = data["sms_info"]
+            lbl_sms.configure(text=f"SMS: {info['units']} characters · {info['segments']} segment{'s' if info['segments'] != 1 else ''} · {info['encoding']}",
+                              text_color=COLOR_THEME_NAMIN["ok" if info["segments"] == 1 else "warn"])
+
+        def on_status():
+            if not dirty["facility"]:
+                ui.set_text(f_facility, default_facility(f_status.get()))
+            render()
+
+        f_facility.bind("<KeyRelease>", lambda e: (dirty.update(facility=True), render()))
+        for widget in (f_symptoms, f_instr, f_hotline):
+            widget.bind("<KeyRelease>", render)
+        for widget in (f_facility, f_symptoms, f_instr, f_hotline):
+            widget.bind("<FocusOut>", render, add="+")
+
+        # actions (bottom)
+        bottom = ui.row(dlg)
+        bottom.grid(row=1, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 16))
+        lbl_status = ui.label(bottom, "", "small", "muted", anchor="w", wraplength=520, justify="left")
+        lbl_status.pack(side="left", fill="x", expand=True)
+        btn_send = ui.button(bottom, "Send notification", None, height=38, width=160)
+        btn_send.pack(side="right")
+        ui.button(bottom, "Cancel", dlg.destroy, kind="ghost", height=38, width=90).pack(side="right", padx=8)
+
+        def copy_sms():
+            self.root.clipboard_clear()
+            self.root.clipboard_append(view["data"]["sms"])
+            lbl_status.configure(text="SMS text copied to the clipboard.", text_color=COLOR_THEME_NAMIN["ok"])
+        ui.button(bottom, "Copy SMS", copy_sms, kind="secondary", height=38, width=100).pack(side="right")
+
+        def finish(note, problem=False):
+            self._last_hotline = f_hotline.get().strip()
+            self._last_facility[f_status.get()] = f_facility.get().strip()
+            dlg.destroy()
+            self.flash(f"Notification saved for {name}." if problem else f"Notification sent to {name}.", "warn" if problem else "ok")
+            if problem:
+                messagebox.showwarning("Sent with a problem", note)
+            else:
+                messagebox.showinfo("Notification sent", f"{name} will see the alert in the resident portal.\n{note}")
+
+        def send():
+            if busy["sending"]:
+                return
+            error = notifications.validate(name, f_status.get(), f_facility.get(), f_hotline.get())
+            with_email = bool(email) and bool(chk_email.get())
+            with_sms = sms_ready and bool(chk_sms.get())
+            mobile = notifications.normalize_mobile(f_mobile.get())
+            if not error and with_sms and not mobile:
+                error = "Enter a valid Philippine mobile number (e.g. 0917 123 4567), or untick SMS."
+            if error:
+                lbl_status.configure(text=error, text_color=COLOR_THEME_NAMIN["danger"])
+                return
+            data = draft()
+            channels = ", ".join(["In-app"] + (["Email"] if with_email else []) + (["SMS"] if with_sms else []))
+            ok, result = group4database.add_notification(
+                rec_id, name, data["status"], notifications.clean(f_facility.get(), 80), data["sms"], data["push_title"], data["push_body"],
+                data["email_subject"], data["email_body"], channels, self.user_info.get("full_name", "Staff"),
+                "Sending…" if with_email else "", "Sending…" if with_sms else "")
+            if not ok:
+                lbl_status.configure(text=f"Could not save the notification: {result}", text_color=COLOR_THEME_NAMIN["danger"])
+                return
+            if not (with_email or with_sms):
+                finish("Only the in-app alert was sent. The SMS text is saved in the notification log, or use Copy SMS.")
+                return
+
+            busy["sending"] = True
+            btn_send.configure(state="disabled", text="Sending…")
+            lbl_status.configure(text="Saved in-app. Sending " + " and ".join(c.lower() for c in channels.split(", ")[1:]) + "…",
+                                 text_color=COLOR_THEME_NAMIN["info"])
+            outcome = {}
+
+            def worker():       # network calls can take a few seconds: keep them off the interface thread
+                lines = []
+                if with_email:
+                    sent, err = group4database.send_notification_email(email, data["email_subject"], data["email_body"], data["email_html"])
+                    group4database.set_notification_email_result(result, "Sent" if sent else f"Failed: {err}")
+                    lines.append("Email sent." if sent else f"Email failed: {err}")
+                if with_sms:
+                    sent, err = group4database.send_sms(mobile, data["sms"])
+                    group4database.set_notification_sms_result(result, f"Sent to {notifications.mask_mobile(mobile)}" if sent else f"Failed: {err}")
+                    lines.append(f"SMS sent to {notifications.mask_mobile(mobile)}." if sent else f"SMS failed: {err}")
+                outcome["lines"] = lines
+            threading.Thread(target=worker, daemon=True).start()
+
+            def poll():
+                if "lines" not in outcome:
+                    if dlg.winfo_exists():
+                        dlg.after(200, poll)
+                    return
+                if dlg.winfo_exists():
+                    failed = any("failed" in line for line in outcome["lines"])
+                    finish(("The in-app alert was delivered, but part of the notification failed:\n\n" if failed else "") +
+                           "\n".join(outcome["lines"]), problem=failed)
+            poll()
+        btn_send.configure(command=send)
+        render()
+
+    def open_notification_log(self):
+        """Every alert sent so far, with the full text of the selected one."""
+        dlg = ui.modal(self.root, "Notification log", 1060, 620)
+        panel = ui.card(dlg)
+        panel.pack(fill="both", expand=True, padx=16, pady=16)
+        ui.label(panel, "Notification log", "title", anchor="w").pack(fill="x", padx=18, pady=(16, 0))
+        ui.label(panel, "Alerts sent to residents. Select a row to read the full message and the SMS text.", "small", "muted",
+                 anchor="w").pack(fill="x", padx=18, pady=(0, 8))
+        holder = ui.row(panel)
+        holder.pack(fill="both", expand=True, padx=10)
+        tree = ui.make_tree(holder, [("id", "ID", 36, "center"), ("sent", "Sent", 120, "center"), ("name", "Resident", 126, "w"),
+                                     ("status", "Assessment", 170, "w"), ("facility", "Facility", 150, "w"),
+                                     ("channels", "Channels", 132, "center"), ("email", "Email", 60, "center"),
+                                     ("sms", "SMS", 56, "center"), ("by", "Sent by", 88, "w")])
+        ui.style_tags(tree, {"urgent": ("danger_bg", "danger")})
+        rows = {}
+        short = lambda result: result.split(" ")[0].rstrip(":") if result else "—"       # 'Failed: ...' -> 'Failed'
+        for r in group4database.get_recent_notifications():
+            nid, _pid, pname, status, facility, _t, _b, _subject, body, sms, channels, email_result, by, created, _read, sms_result = r
+            rows[str(nid)] = (email_result, sms_result, sms, body)
+            tree.insert("", "end", iid=str(nid), tags=("urgent",) if status == notifications.PRIORITY else (),
+                        values=(nid, created[:16], pname, status, facility, channels, short(email_result), short(sms_result), by))
+        detail = self.text_box(panel, height=190)
+        detail.pack(fill="x", padx=18, pady=(10, 8))
+        self.set_box(detail, "No alerts sent yet." if not rows else "Select a row to read the message.")
+
+        def on_select(_event):
+            sel = tree.selection()
+            if sel:
+                email_result, sms_result, sms, body = rows[sel[0]]
+                self.set_box(detail, f"Email: {email_result or 'not sent'}\nSMS: {sms_result or 'not sent'}\nSMS text: {sms or '(none)'}\n\n{'-' * 40}\n{body}")
+        tree.bind("<<TreeviewSelect>>", on_select)
+        ui.button(panel, "Close", dlg.destroy, kind="ghost", height=32).pack(fill="x", padx=18, pady=(0, 16))
 
     # ── Flood management page ────────────────────────────────────────────────
     def build_flood_page(self, page):

@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox
 import customtkinter
 
 import group4database
+import notifications
 import ui_theme as ui
 from ui_theme import COLOR_THEME_NAMIN
 
@@ -30,7 +31,7 @@ WILD_META = {
     "dengue": ("D", "Dengue", "Cause: From mosquito bites that cary dengue virus", "What to do?: Medical Interventions, Aggressive Hydration, Rest and cover water containers. if red flags occurs seek emergency care immediately "),
 }
 GAUGE = [("Safe", "ok"), ("Knee", "yellow"), ("Waist", "orange"), ("Chest", "danger")]
-PAGES = [("flood", "Flood monitor"), ("report", "Report illness"), ("watch", "Disease watch")]
+PAGES = [("flood", "Flood monitor"), ("report", "Report illness"), ("watch", "Disease watch"), ("alerts", "Notifications")]
 ALL_AREAS = "All areas"
 
 
@@ -47,6 +48,8 @@ class PatientPortalWindow:
         self.symptoms = set()
         self._flood_rows = {}
         self._timers = {}
+        self._announced = set()     # urgent alerts already shown as a pop-up this session
+        self._alert_open = set()    # alerts whose full message is expanded
 
         self.root = customtkinter.CTk()
         self.root.title("W.I.L.D. CARE — Resident Portal")
@@ -63,8 +66,10 @@ class PatientPortalWindow:
         self.build_flood_page(self.pages["flood"])
         self.build_report_page(self.pages["report"])
         self.build_watch_page(self.pages["watch"])
+        self.build_alerts_page(self.pages["alerts"])
         self.navigate("flood")
         self.schedule_refresh()
+        self.root.after(600, self.check_alerts)
 
     # ── Shell ────────────────────────────────────────────────────────────────
     def build_sidebar(self):
@@ -117,11 +122,11 @@ class PatientPortalWindow:
         self.refresh()
 
     def refresh(self):
-        {"flood": self.load_flood, "report": self.load_cases, "watch": self.load_watch}[self.page]()
+        {"flood": self.load_flood, "report": self.load_cases, "watch": self.load_watch, "alerts": self.load_alerts}[self.page]()
 
     def schedule_refresh(self):
         self.cancel("refresh")
-        self._timers["refresh"] = self.root.after(30000, lambda: (self.refresh(), self.schedule_refresh()))
+        self._timers["refresh"] = self.root.after(30000, lambda: (self.refresh(), self.check_alerts(), self.schedule_refresh()))
 
     def cancel(self, name):
         if self._timers.get(name):
@@ -431,6 +436,76 @@ class PatientPortalWindow:
         if overview:
             first = overview[0]
             self.lbl_source.configure(text=f"{first['period']} · updated {first['updated_at']} · {first['source']}")
+
+    # ── Notifications ────────────────────────────────────────────────────────
+    def build_alerts_page(self, page):
+        self.header(page, "Notifications", "Messages from your health worker about your care.")
+        bar = ui.row(page)
+        bar.pack(fill="x", pady=(0, 8))
+        self.lbl_alert_count = ui.label(bar, "", "small", "muted", anchor="w")
+        self.lbl_alert_count.pack(side="left")
+        ui.button(bar, "Mark all as read", self.mark_all_alerts_read, kind="secondary", height=30, font="small", width=130).pack(side="right")
+        self.alerts_list = customtkinter.CTkScrollableFrame(page, fg_color="transparent")
+        self.alerts_list.pack(fill="both", expand=True)
+
+    def load_alerts(self):
+        for widget in self.alerts_list.winfo_children():
+            widget.destroy()
+        records = group4database.get_notifications_for_patient(self.full_name)
+        unread = sum(1 for r in records if not r[14])
+        self.lbl_alert_count.configure(text=f"{len(records)} message{'s' if len(records) != 1 else ''} · {unread} unread")
+        self.update_badge()
+        if not records:
+            ui.label(self.alerts_list, "No notifications yet.\nYour health worker's messages will appear here.", "body", "muted",
+                     justify="center").pack(pady=40)
+            return
+        for nid, _pid, _name, status, facility, title, body, _subject, message, _sms, _channels, _email, _by, created, is_read, _sms_result in records:
+            urgent = status == notifications.PRIORITY
+            is_open = nid in self._alert_open
+            item = ui.inset(self.alerts_list)
+            item.pack(fill="x", pady=5, padx=2)
+            top = ui.row(item)
+            top.pack(fill="x", padx=14, pady=(12, 2))
+            if not is_read:
+                ui.pill(top, "NEW", "danger" if urgent else "info").pack(side="right", padx=(6, 0))
+            ui.pill(top, "Urgent" if urgent else "Check-up", "danger" if urgent else "ok").pack(side="right")
+            ui.label(top, title, "bodybold", "danger" if urgent and not is_read else "text", anchor="w", wraplength=420,
+                     justify="left").pack(side="left", fill="x", expand=True)
+            ui.label(item, f"{created[:16]} · {facility}", "small", "muted", anchor="w").pack(fill="x", padx=14, pady=(0, 6))
+            ui.label(item, body, "body", anchor="w", wraplength=640, justify="left").pack(fill="x", padx=14, pady=(0, 8))
+            if is_open:
+                ui.label(item, message, "body", anchor="w", wraplength=640, justify="left").pack(fill="x", padx=14, pady=(0, 8))
+            ui.button(item, "Hide full message" if is_open else "Read full message", lambda i=nid: self.toggle_alert(i),
+                      kind="secondary", height=30, font="small", width=150).pack(anchor="w", padx=14, pady=(0, 12))
+
+    def toggle_alert(self, notification_id):
+        if notification_id in self._alert_open:
+            self._alert_open.discard(notification_id)
+        else:
+            self._alert_open.add(notification_id)
+            group4database.mark_notification_read(notification_id, self.full_name)
+        self.load_alerts()
+
+    def mark_all_alerts_read(self):
+        group4database.mark_all_notifications_read(self.full_name)
+        self.load_alerts()
+
+    def update_badge(self):
+        unread = group4database.count_unread_notifications(self.full_name)
+        self.nav["alerts"].configure(text=f"Notifications  ({unread})" if unread else "Notifications")
+
+    def check_alerts(self):
+        """Refreshes the unread count and shows each unread urgent alert once as a pop-up."""
+        self.update_badge()
+        shown = False
+        for r in group4database.get_notifications_for_patient(self.full_name):
+            nid, status, title, body, is_read = r[0], r[3], r[5], r[6], r[14]
+            if status == notifications.PRIORITY and not is_read and nid not in self._announced:
+                self._announced.add(nid)
+                shown = True
+                messagebox.showwarning(title, f"{body}\n\nOpen Notifications for the full steps.\nFor a life-threatening emergency, call 911.")
+        if shown:
+            self.navigate("alerts")
 
     # ── Dialogs & session ────────────────────────────────────────────────────
     def show_hotlines(self):

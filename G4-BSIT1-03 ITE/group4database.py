@@ -8,16 +8,20 @@ import csv
 import hashlib
 import hmac
 import html
+import json
 import os
 import secrets
 import smtplib
 import sqlite3
 import string
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-DATABASE_FILENAME = "bsit1group4database.db"
+DATABASE_FILENAME = "database2026.db"
 TS_FORMAT = "%Y-%m-%d %H:%M:%S"
 PBKDF2_ITERATIONS = 100000
 MAX_FAILED_ATTEMPTS = 5
@@ -71,6 +75,14 @@ SMTP_CONFIG = {
     "sender_name":     "W.I.L.D. CARE Account Recovery"
 }
 SMPTP_CONFIGURATION = SMTP_CONFIG  # backward-compatible alias
+
+# Optional SMS sending through Semaphore (Philippine numbers). Set WILDCARE_SMS_API_KEY to switch it on; WILDCARE_SMS_SENDER is an
+# optional registered sender name (Semaphore uses its own default when it is empty).
+SMS_CONFIG = {
+    "url": env("WILDCARE_SMS_URL", default="https://api.semaphore.co/api/v4/messages"),
+    "api_key": env("WILDCARE_SMS_API_KEY"),
+    "sender_name": env("WILDCARE_SMS_SENDER"),
+}
 
 DEFAULT_ADMIN_NAME = "Admin"
 DEFAULT_ADMIN_PASS = env("WILDCARE_DEFAULT_ADMIN_PASS", default="wildcare#admin#2026")
@@ -186,6 +198,11 @@ CREATE TABLE IF NOT EXISTS disease_statistics (
     id INTEGER PRIMARY KEY AUTOINCREMENT, disease TEXT NOT NULL, area TEXT NOT NULL, period TEXT NOT NULL,
     cases INTEGER DEFAULT 0, cases_last_year INTEGER DEFAULT 0, deaths INTEGER DEFAULT 0,
     source TEXT DEFAULT '', updated_by TEXT DEFAULT '', updated_at TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id INTEGER DEFAULT 0, patient_name TEXT NOT NULL,
+    status TEXT NOT NULL, facility TEXT DEFAULT '', sms_text TEXT DEFAULT '', push_title TEXT NOT NULL,
+    push_body TEXT NOT NULL, email_subject TEXT DEFAULT '', email_body TEXT NOT NULL, channels TEXT DEFAULT '',
+    email_result TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at TEXT NOT NULL, is_read INTEGER DEFAULT 0);
 """
 
 # Columns added in later versions: older database files are upgraded in place.
@@ -195,6 +212,7 @@ _ADDED_COLUMNS = {
               "failed_attempts": "INTEGER DEFAULT 0", "locked_until": "TEXT DEFAULT ''", "email": "TEXT DEFAULT ''",
               "reset_otp_hash": "TEXT DEFAULT ''", "reset_otp_expiry": "TEXT DEFAULT ''",
               "reset_otp_attempts": "INTEGER DEFAULT 0"},
+    "notifications": {"sms_result": "TEXT DEFAULT ''"},
 }
 
 _N, _L, _W, _C = FLOOD_ALERT_NORMAL, FLOOD_ALERT_LOW, FLOOD_ALERT_WARNING, FLOOD_ALERT_CRITICAL
@@ -972,3 +990,130 @@ def delete_disease_statistic(stat_id):
     if sid is None:
         return False, "Invalid statistic ID."
     return write("DELETE FROM disease_statistics WHERE id = ?", (sid,), done="Disease statistic deleted successfully.")
+
+
+# ── Resident notifications ─────────────────────────────────────────────────
+_NOTIFY_COLS = ("id, patient_id, patient_name, status, facility, push_title, push_body, email_subject, email_body, "
+                "sms_text, channels, email_result, created_by, created_at, is_read, sms_result")
+
+
+def add_notification(patient_id, patient_name, status, facility, sms_text, push_title, push_body, email_subject,
+                     email_body, channels, created_by, email_result="", sms_result=""):
+    """Stores an in-app alert for a resident. Returns (True, new_id) or (False, error)."""
+    return write(
+        """INSERT INTO notifications (patient_id, patient_name, status, facility, sms_text, push_title, push_body,
+           email_subject, email_body, channels, email_result, sms_result, created_by, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (to_int(patient_id) or 0, patient_name.strip(), status, facility, sms_text, push_title, push_body, email_subject,
+         email_body, channels, email_result, sms_result, created_by, datetime.now().strftime(TS_FORMAT)))
+
+
+def set_notification_email_result(notification_id, result):
+    return write("UPDATE notifications SET email_result = ? WHERE id = ?", (result, to_int(notification_id)), done="Updated.")
+
+
+def set_notification_sms_result(notification_id, result):
+    return write("UPDATE notifications SET sms_result = ? WHERE id = ?", (result, to_int(notification_id)), done="Updated.")
+
+
+def get_notifications_for_patient(patient_name):
+    """A resident's alerts, newest first (matched by full name, like their cases)."""
+    return fetch(f"SELECT {_NOTIFY_COLS} FROM notifications WHERE lower(patient_name) = lower(?) ORDER BY id DESC",
+                 (patient_name.strip(),))
+
+
+def count_unread_notifications(patient_name):
+    row = fetch("SELECT COUNT(*) FROM notifications WHERE lower(patient_name) = lower(?) AND is_read = 0",
+                (patient_name.strip(),), one=True)
+    return row[0] if row else 0
+
+
+def mark_notification_read(notification_id, patient_name):
+    """Only the resident the alert was sent to can mark it as read."""
+    nid = to_int(notification_id)
+    if nid is None:
+        return False, "Invalid notification ID."
+    return write("UPDATE notifications SET is_read = 1 WHERE id = ? AND lower(patient_name) = lower(?)",
+                 (nid, patient_name.strip()), done="Marked as read.")
+
+
+def mark_all_notifications_read(patient_name):
+    return write("UPDATE notifications SET is_read = 1 WHERE lower(patient_name) = lower(?) AND is_read = 0",
+                 (patient_name.strip(),), done="All marked as read.")
+
+
+def get_recent_notifications(limit=300):
+    """Staff log: every alert sent, newest first."""
+    return fetch(f"SELECT {_NOTIFY_COLS} FROM notifications ORDER BY id DESC LIMIT ?", (to_int(limit) or 300,))
+
+
+def get_resident_email(full_name):
+    """Email on a resident's account (matched by full name), or '' when there is none."""
+    row = fetch("SELECT email FROM users WHERE lower(full_name) = lower(?) AND role = ? AND email LIKE '%@%'",
+                (full_name.strip(), ROLE_PATIENT), one=True)
+    return (row[0] or "").strip() if row else ""
+
+
+def mask_email(email):
+    local, _, domain = email.partition("@")
+    return (local[:2] + "\u2022\u2022\u2022\u2022@" + domain) if len(local) > 2 else email
+
+
+def send_notification_email(to_email, subject, plain_body, html_body):
+    """Emails a notification with the same SMTP settings as password recovery. Returns (True, None) or (False, error)."""
+    cfg = SMTP_CONFIG
+    if not cfg["sender_email"] or not cfg["sender_password"]:
+        return False, ("Email service is not configured. Set the WILDCARE_SMTP_EMAIL and WILDCARE_SMTP_PASSWORD "
+                       "environment variables (a Gmail address and its App Password), then restart the app.")
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"W.I.L.D. CARE Health Alerts <{cfg['sender_email']}>"
+        msg["To"] = to_email
+        msg.attach(MIMEText(plain_body, "plain", "utf-8"))
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(cfg["sender_email"], cfg["sender_password"])
+            server.sendmail(cfg["sender_email"], to_email, msg.as_string())
+        return True, None
+    except smtplib.SMTPAuthenticationError:
+        return False, "Gmail authentication failed. Check WILDCARE_SMTP_EMAIL / WILDCARE_SMTP_PASSWORD (use an App Password)."
+    except smtplib.SMTPException as e:
+        return False, f"Email delivery failed: {e}"
+    except Exception as e:
+        return False, f"Unexpected email error: {e}"
+
+
+def sms_configured():
+    return bool(SMS_CONFIG["api_key"])
+
+
+def send_sms(number, text):
+    """Sends one SMS through Semaphore (Philippine numbers only). Returns (True, None) or (False, error).
+    The error text never contains the API key."""
+    if not sms_configured():
+        return False, "SMS service is not configured. Set the WILDCARE_SMS_API_KEY environment variable (a Semaphore API key), then restart the app."
+    fields = {"apikey": SMS_CONFIG["api_key"], "number": number, "message": text}
+    if SMS_CONFIG["sender_name"]:
+        fields["sendername"] = SMS_CONFIG["sender_name"]
+    try:
+        request = urllib.request.Request(SMS_CONFIG["url"], data=urllib.parse.urlencode(fields).encode("utf-8"), method="POST")
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = response.read().decode("utf-8", "replace")
+        try:
+            reply = json.loads(body)
+        except ValueError:
+            return False, f"Unexpected reply from the SMS gateway: {body[:120]}"
+        if isinstance(reply, list) and reply:      # success: one entry per message queued
+            return True, None
+        return False, f"The SMS gateway did not accept the message: {str(reply)[:160]}"
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:160] if hasattr(e, "read") else ""
+        return False, f"The SMS gateway rejected the request (HTTP {e.code}). {detail}".strip()
+    except urllib.error.URLError as e:
+        return False, f"Could not reach the SMS gateway: {e.reason}"
+    except Exception as e:
+        return False, f"Unexpected SMS error: {e}"
