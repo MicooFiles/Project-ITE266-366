@@ -4,6 +4,7 @@
 # Licensed under the W.I.L.D. CARE Educational License (see LICENSE.txt). Provided "AS IS", without warranty.
 # Not a medical device. Do not use it for real clinical or emergency decisions.
 
+import os
 import re
 import sys
 import threading
@@ -11,6 +12,7 @@ from datetime import date, datetime
 from tkinter import filedialog, messagebox
 
 import customtkinter
+from PIL import Image
 
 import group4database
 import notifications

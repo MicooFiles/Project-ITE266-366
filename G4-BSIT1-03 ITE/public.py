@@ -5,11 +5,13 @@
 # Not a medical device. Do not use it for real clinical or emergency decisions.
 
 import csv
+import os
 import sys
 from datetime import date, datetime
 from tkinter import filedialog, messagebox
 
 import customtkinter
+from PIL import Image
 
 import group4database
 import notifications
@@ -94,13 +96,22 @@ class PatientPortalWindow:
         off_id = self.user_info.get("official_id", "")
         id_type = self.user_info.get("id_type", "")
         id_num = self.user_info.get("id_number", "")
-        if id_type and id_num:
+        id_photo = self.user_info.get("id_photo", "")
+        actual_photo = group4database.get_id_photo_path(id_photo)
+
+        if id_type and actual_photo:
+            id_str = f"✓ Verified Resident\n{id_type}\nProof: Photo Verified ✓"
+        elif id_type and id_num:
             id_str = f"✓ Verified Resident\n{id_type} · {id_num}"
         elif off_id and off_id != "RESIDENT":
             id_str = f"✓ Verified Resident\n{off_id}"
         else:
             id_str = "Verified Resident Account"
-        ui.label(who, id_str, "small", "side_accent", anchor="w", wraplength=200, justify="left").pack(fill="x", padx=14, pady=(0, 10))
+        ui.label(who, id_str, "small", "side_accent", anchor="w", wraplength=200, justify="left").pack(fill="x", padx=14, pady=(0, 6))
+
+        if actual_photo:
+            ui.button(who, "📷 View ID photo proof", lambda: self.view_id_proof(actual_photo, id_type),
+                      kind="nav", font="smallbold", height=28, anchor="w").pack(fill="x", padx=10, pady=(0, 8))
 
         self.nav = {}
         for key, text in PAGES:
@@ -529,6 +540,32 @@ class PatientPortalWindow:
             ui.label(line, name, "label", "muted", anchor="w").pack(fill="x")
             ui.label(line, number, "bodybold", "accent_text", anchor="w").pack(fill="x")
         ui.button(panel, "Close", dlg.destroy, kind="secondary").pack(fill="x", padx=22, pady=(14, 18), side="bottom")
+
+    def view_id_proof(self, photo_path, id_type="Valid ID"):
+        if not photo_path or not os.path.isfile(photo_path):
+            messagebox.showwarning("ID Photo", "No ID photo file found on this device.")
+            return
+        dlg = ui.modal(self.root, f"Verified ID Photo — {self.full_name}", 520, 500)
+        card = ui.card(dlg)
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ui.label(card, f"Proof of Identity — {self.full_name}", "title", anchor="w").pack(fill="x", padx=16, pady=(14, 2))
+        ui.label(card, f"ID Type: {id_type or 'Government / School ID'}  •  Status: Verified ✓",
+                 "small", "ok", anchor="w").pack(fill="x", padx=16, pady=(0, 10))
+
+        try:
+            with Image.open(photo_path) as pil_img:
+                pil_copy = pil_img.copy()
+                pil_copy.thumbnail((460, 320), Image.Resampling.LANCZOS)
+                modal_ctk_img = customtkinter.CTkImage(light_image=pil_copy, dark_image=pil_copy,
+                                                        size=(pil_copy.width, pil_copy.height))
+                lbl = customtkinter.CTkLabel(card, image=modal_ctk_img, text="", corner_radius=8)
+                lbl.image = modal_ctk_img
+                lbl.pack(padx=16, pady=(0, 14), expand=True)
+        except Exception as e:
+            ui.label(card, f"Could not display ID image:\n{e}", "small", "danger").pack(padx=16, pady=20)
+
+        ui.button(card, "Close", dlg.destroy, kind="secondary", height=36).pack(fill="x", padx=16, pady=(0, 14))
 
     def close_window(self):
         for name in list(self._timers):

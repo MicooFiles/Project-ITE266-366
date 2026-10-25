@@ -4,10 +4,12 @@
 # Licensed under the W.I.L.D. CARE Educational License (see LICENSE.txt). Provided "AS IS", without warranty.
 # Not a medical device. Do not use it for real clinical or emergency decisions.
 
+import os
 import sys
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 
 import customtkinter
+from PIL import Image
 
 import group4database
 import ui_theme as ui
@@ -18,6 +20,8 @@ class LoginWindow:
     def __init__(self, on_login_success_callback):
         self.on_login_success = on_login_success_callback
         self._pwd_visible = False
+        self._selected_id_photo = ""
+        self._thumb_img = None
 
         self.root = customtkinter.CTk()
         self.root.title("W.I.L.D. CARE — Sign In BY GROUP4 BSIT1-03")
@@ -128,7 +132,7 @@ class LoginWindow:
 
     def build_register(self, view):
         ui.label(view, "Create a resident account", "title", anchor="w").pack(fill="x")
-        ui.label(view, "Sign up with your verified government or school ID.", "body", "muted", anchor="w").pack(fill="x", pady=(2, 12))
+        ui.label(view, "Sign up with a photo of your valid ID as proof of real identity.", "body", "muted", anchor="w").pack(fill="x", pady=(2, 10))
         self.reg_name = ui.field(view, "Full name", placeholder="e.g. Ronaldo jr. V. Deguzman", pady=(0, 6))
 
         id_row = ui.row(view)
@@ -138,21 +142,58 @@ class LoginWindow:
         id_left.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         id_right.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
-        def on_id_type_change(choice):
-            ph = group4database.RESIDENT_ID_PLACEHOLDERS.get(choice, "e.g. ID-2026-00123")
-            self.reg_id_num.configure(placeholder_text=ph)
-            val = self.reg_id_num.get().strip()
-            if val:
-                on_id_blur(None)
-
         self.reg_id_type = ui.field(id_left, "Valid ID type", kind="combo",
                                     values=group4database.VALID_RESIDENT_ID_TYPES,
                                     default=group4database.VALID_RESIDENT_ID_TYPES[0],
-                                    pady=(0, 0), height=34, command=on_id_type_change)
-        default_id_ph = group4database.RESIDENT_ID_PLACEHOLDERS.get(group4database.VALID_RESIDENT_ID_TYPES[0], "e.g. BRGY-2026-0045")
-        self.reg_id_num = ui.field(id_right, "Valid ID / Document no.",
-                                   placeholder=default_id_ph,
-                                   pady=(0, 0), height=34)
+                                    pady=(0, 0), height=34)
+
+        # ID Photo attachment widget
+        ui.label(id_right, "Proof of real identity (ID photo)", "small", "muted", anchor="w").pack(fill="x", pady=(0, 2))
+        upload_card = customtkinter.CTkFrame(id_right, fg_color=COLOR_THEME_NAMIN["input"],
+                                             corner_radius=ui.R_CTRL, border_width=1,
+                                             border_color=COLOR_THEME_NAMIN["border"], height=34)
+        upload_card.pack(fill="x")
+        upload_card.pack_propagate(False)
+
+        def browse_id_photo():
+            path = filedialog.askopenfilename(
+                title="Select Valid ID Photo (Proof of Real Identity)",
+                filetypes=[
+                    ("ID Image files", "*.png *.jpg *.jpeg *.webp *.bmp"),
+                    ("PNG files", "*.png"),
+                    ("JPEG files", "*.jpg *.jpeg"),
+                    ("All files", "*.*")
+                ]
+            )
+            if not path:
+                return
+            ok, res = group4database.validate_resident_id_photo(path)
+            if not ok:
+                self.lbl_reg.configure(text=f"⚠️ {res}", text_color=COLOR_THEME_NAMIN["danger"])
+                messagebox.showerror("Invalid ID Photo", res)
+                return
+            self._selected_id_photo = res
+            fname = os.path.basename(res)
+            short_name = fname if len(fname) <= 15 else fname[:12] + "..."
+            self.lbl_photo_info.configure(text=f"✓ {short_name}", text_color=COLOR_THEME_NAMIN["ok"])
+            self.btn_preview_photo.pack(side="right", padx=(0, 4), pady=2)
+            self.lbl_reg.configure(text=f"✓ ID photo attached: {fname}", text_color=COLOR_THEME_NAMIN["ok"])
+
+        def preview_attached_photo():
+            if not self._selected_id_photo:
+                messagebox.showwarning("No Photo", "Please attach a photo of your valid ID first.")
+                return
+            self.show_photo_dialog(self._selected_id_photo, title=f"Valid ID Proof — {self.reg_id_type.get()}")
+
+        btn_browse = ui.button(upload_card, "📷 Choose photo...", browse_id_photo,
+                               kind="secondary", height=28, font="smallbold")
+        btn_browse.pack(side="left", padx=(3, 4), pady=3)
+
+        self.btn_preview_photo = ui.button(upload_card, "👁️ View", preview_attached_photo,
+                                           kind="ghost", height=28, font="smallbold")
+
+        self.lbl_photo_info = ui.label(upload_card, "No photo attached", "small", "muted", anchor="w")
+        self.lbl_photo_info.pack(side="left", fill="x", expand=True, padx=(2, 2))
 
         self.reg_email = ui.field(view, "Email (for 6-digit recovery codes)", placeholder="e.g. ronaldojr@gmail.com", pady=(0, 6))
 
@@ -167,9 +208,8 @@ class LoginWindow:
 
         self.lbl_reg = ui.label(view, "", "small", "danger", anchor="w", wraplength=400, justify="left")
         self.lbl_reg.pack(fill="x", pady=(4, 6))
-        ui.button(view, "Verify ID & create resident account", self.handle_register, height=44).pack(fill="x")
+        ui.button(view, "Verify ID photo & create resident account", self.handle_register, height=44).pack(fill="x")
         self.reg_conf.bind("<Return>", lambda e: self.handle_register())
-        self.reg_id_num.bind("<Return>", lambda e: self.handle_register())
 
         def on_name_blur(event):
             val = self.reg_name.get().strip()
@@ -180,22 +220,6 @@ class LoginWindow:
                 elif self.lbl_reg.cget("text").startswith("⚠️"):
                     self.lbl_reg.configure(text="")
         self.reg_name.bind("<FocusOut>", on_name_blur)
-
-        def on_id_blur(event):
-            val = self.reg_id_num.get().strip()
-            if val:
-                ok, res = group4database.validate_resident_id(self.reg_id_type.get(), val)
-                if not ok:
-                    self.lbl_reg.configure(text=f"⚠️ {res}", text_color=COLOR_THEME_NAMIN["warn"])
-                    return
-                ok_u, err_u = group4database.check_id_number_unique(res)
-                if not ok_u:
-                    self.lbl_reg.configure(text=f"⚠️ {err_u}", text_color=COLOR_THEME_NAMIN["warn"])
-                    return
-                self.lbl_reg.configure(text=f"✓ Valid ID verified: {self.reg_id_type.get()}", text_color=COLOR_THEME_NAMIN["ok"])
-            elif self.lbl_reg.cget("text").startswith("✓"):
-                self.lbl_reg.configure(text="")
-        self.reg_id_num.bind("<FocusOut>", on_id_blur)
 
     def toggle_password(self):
         self._pwd_visible = not self._pwd_visible
@@ -229,38 +253,79 @@ class LoginWindow:
             return
 
         id_type = self.reg_id_type.get()
-        id_num = self.reg_id_num.get().strip()
-        ok_id, id_res = group4database.validate_resident_id(id_type, id_num)
-        if not ok_id:
-            self.lbl_reg.configure(text=id_res, text_color=COLOR_THEME_NAMIN["danger"])
-            self.reg_id_num.focus_set()
+        if not self._selected_id_photo:
+            msg = "Please attach a photo or picture of your valid ID as proof of real identity."
+            self.lbl_reg.configure(text=f"⚠️ {msg}", text_color=COLOR_THEME_NAMIN["danger"])
+            messagebox.showwarning(
+                "Valid ID Photo Required",
+                "Proof of real identity is required for resident registration.\n\n"
+                f"Please click '📷 Choose photo...' to attach a picture of your Valid ID\n({id_type})."
+            )
             return
 
-        ok_uniq, uniq_err = group4database.check_id_number_unique(id_res)
-        if not ok_uniq:
-            self.lbl_reg.configure(text=uniq_err, text_color=COLOR_THEME_NAMIN["danger"])
-            self.reg_id_num.focus_set()
+        ok_photo, photo_res = group4database.validate_resident_id_photo(self._selected_id_photo)
+        if not ok_photo:
+            self.lbl_reg.configure(text=f"⚠️ {photo_res}", text_color=COLOR_THEME_NAMIN["danger"])
             return
+
+        password = self.reg_pass.get().strip()
+        confirm = self.reg_conf.get().strip()
+        email = self.reg_email.get().strip()
 
         ok, msg = group4database.register_resident_user(
-            name_res, self.reg_pass.get().strip(), self.reg_conf.get().strip(),
-            self.reg_email.get().strip(), id_type=id_type, id_number=id_res)
+            name_res, password=password, confirm_password=confirm,
+            email=email, id_type=id_type, id_photo_path=photo_res)
         if not ok:
             self.lbl_reg.configure(text=msg, text_color=COLOR_THEME_NAMIN["danger"])
             return
 
         messagebox.showinfo(
-            "Resident account verified",
+            "Resident Account Verified",
             f"Welcome to W.I.L.D. CARE by GROUP4 BSIT1-03, {name_res}!\n\n"
-            f"Your Valid ID has been verified:\n• {id_type}: {id_res}\n\n"
+            f"Your proof of real identity has been verified:\n"
+            f"• Valid ID Type: {id_type}\n"
+            f"• Proof of Identity: Photo Verified ✓\n\n"
             "You can now sign in with your full name.")
-        for widget in (self.reg_name, self.reg_id_num, self.reg_email, self.reg_pass, self.reg_conf):
-            widget.delete(0, "end")
-        self.lbl_reg.configure(text="")
+        self.reset_register_fields()
         self.show_view("Sign in")
         ui.set_text(self.entry_user, name_res)
         self.entry_pass.delete(0, "end")
         self.entry_pass.focus_set()
+
+    def reset_register_fields(self):
+        for widget in (self.reg_name, self.reg_email, self.reg_pass, self.reg_conf):
+            widget.delete(0, "end")
+        self._selected_id_photo = ""
+        if hasattr(self, "lbl_photo_info"):
+            self.lbl_photo_info.configure(text="No photo attached", text_color=COLOR_THEME_NAMIN["muted"])
+        if hasattr(self, "btn_preview_photo"):
+            self.btn_preview_photo.pack_forget()
+        self.lbl_reg.configure(text="")
+
+    def show_photo_dialog(self, photo_path, title="Valid ID Proof"):
+        if not photo_path or not os.path.isfile(photo_path):
+            messagebox.showerror("Error", "ID photo file could not be found.")
+            return
+        dlg = ui.modal(self.root, title, 520, 500)
+        card = ui.card(dlg)
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ui.label(card, title, "title", anchor="w").pack(fill="x", padx=16, pady=(14, 2))
+        ui.label(card, f"File: {os.path.basename(photo_path)}  •  Proof of Real Identity", "small", "muted", anchor="w").pack(fill="x", padx=16, pady=(0, 10))
+
+        try:
+            with Image.open(photo_path) as pil_img:
+                pil_copy = pil_img.copy()
+                pil_copy.thumbnail((460, 320), Image.Resampling.LANCZOS)
+                modal_ctk_img = customtkinter.CTkImage(light_image=pil_copy, dark_image=pil_copy,
+                                                        size=(pil_copy.width, pil_copy.height))
+                lbl_img = customtkinter.CTkLabel(card, image=modal_ctk_img, text="", corner_radius=8)
+                lbl_img.image = modal_ctk_img
+                lbl_img.pack(padx=16, pady=(0, 14), expand=True)
+        except Exception as e:
+            ui.label(card, f"Could not load image preview:\n{e}", "small", "danger").pack(padx=16, pady=20)
+
+        ui.button(card, "Close", dlg.destroy, kind="secondary", height=36).pack(fill="x", padx=16, pady=(0, 14))
 
     def open_recovery(self):
         """Two steps in one dialog: request the emailed code, then verify it and set a new password."""

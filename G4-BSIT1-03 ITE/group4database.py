@@ -10,9 +10,10 @@ import hmac
 import html
 import json
 import os
-import secrets
-import smtplib
 import re
+import secrets
+import shutil
+import smtplib
 import sqlite3
 import string
 import urllib.error
@@ -21,6 +22,8 @@ import urllib.request
 from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+from PIL import Image
 
 DATABASE_FILENAME = "database2026.db"
 TS_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -76,6 +79,9 @@ RESIDENT_ID_PLACEHOLDERS = {
     "Senior Citizen / PWD ID": "e.g. SC-DAG-2026-012",
     "Passport": "e.g. P1234567A",
 }
+
+ID_PROOFS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "id_proofs")
+os.makedirs(ID_PROOFS_DIR, exist_ok=True)
 
 
 # ── Configuration (secrets come from environment variables, never from source) ──
@@ -217,7 +223,7 @@ CREATE TABLE IF NOT EXISTS users (
     official_id TEXT DEFAULT '', station_barangay TEXT DEFAULT '', date_created TEXT NOT NULL,
     failed_attempts INTEGER DEFAULT 0, locked_until TEXT DEFAULT '', email TEXT DEFAULT '',
     reset_otp_hash TEXT DEFAULT '', reset_otp_expiry TEXT DEFAULT '', reset_otp_attempts INTEGER DEFAULT 0,
-    id_type TEXT DEFAULT '', id_number TEXT DEFAULT '');
+    id_type TEXT DEFAULT '', id_number TEXT DEFAULT '', id_photo TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS flood_monitoring (
     id INTEGER PRIMARY KEY AUTOINCREMENT, city TEXT NOT NULL, barangay TEXT NOT NULL,
     water_level_meters REAL NOT NULL, water_depth_desc TEXT NOT NULL, rainfall_rate_mm REAL NOT NULL,
@@ -241,7 +247,7 @@ _ADDED_COLUMNS = {
               "failed_attempts": "INTEGER DEFAULT 0", "locked_until": "TEXT DEFAULT ''", "email": "TEXT DEFAULT ''",
               "reset_otp_hash": "TEXT DEFAULT ''", "reset_otp_expiry": "TEXT DEFAULT ''",
               "reset_otp_attempts": "INTEGER DEFAULT 0",
-              "id_type": "TEXT DEFAULT ''", "id_number": "TEXT DEFAULT ''"},
+              "id_type": "TEXT DEFAULT ''", "id_number": "TEXT DEFAULT ''", "id_photo": "TEXT DEFAULT ''"},
     "notifications": {"sms_result": "TEXT DEFAULT ''"},
 }
 
@@ -333,18 +339,25 @@ def authenticate_user(full_name, password):
         with group4_get_database_connection() as db:
             cols = [r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()]
             has_id_cols = "id_type" in cols and "id_number" in cols
-            select_sql = ("""SELECT id, password, full_name, role, official_id, station_barangay, failed_attempts, locked_until, id_type, id_number
-                            FROM users WHERE lower(full_name) = ? OR (email != '' AND lower(email) = ?)"""
-                          if has_id_cols else
-                          """SELECT id, password, full_name, role, official_id, station_barangay, failed_attempts, locked_until
-                            FROM users WHERE lower(full_name) = ? OR (email != '' AND lower(email) = ?)""")
+            has_photo_col = "id_photo" in cols
+            select_cols = ["id", "password", "full_name", "role", "official_id", "station_barangay", "failed_attempts", "locked_until"]
+            if has_id_cols:
+                select_cols.extend(["id_type", "id_number"])
+            if has_photo_col:
+                select_cols.append("id_photo")
+            select_sql = f"SELECT {', '.join(select_cols)} FROM users WHERE lower(full_name) = ? OR (email != '' AND lower(email) = ?)"
             row = db.execute(select_sql, (key, key)).fetchone()
             if not row:
                 return False, generic_fail
-            uid, stored, name, role, official_id, station, attempts, locked_until = row[:8]
-            id_type_val = row[8] if has_id_cols and len(row) > 8 and row[8] else ""
-            id_num_val = row[9] if has_id_cols and len(row) > 9 and row[9] else ""
-            attempts = attempts or 0
+            row_data = dict(zip(select_cols, row))
+            uid = row_data["id"]
+            stored = row_data["password"]
+            name = row_data["full_name"]
+            role = row_data["role"]
+            official_id = row_data.get("official_id") or ""
+            station = row_data.get("station_barangay") or ""
+            attempts = row_data.get("failed_attempts") or 0
+            locked_until = row_data.get("locked_until") or ""
 
             if locked_until:
                 try:
@@ -370,8 +383,10 @@ def authenticate_user(full_name, password):
             if not stored.startswith("pbkdf2:"):   # silently upgrade legacy hashes
                 db.execute("UPDATE users SET password = ? WHERE id = ?", (new_hash(password), uid))
             return True, {"id": uid, "full_name": name, "role": role,
-                          "official_id": official_id or "", "station_barangay": station or "",
-                          "id_type": id_type_val, "id_number": id_num_val}
+                          "official_id": official_id, "station_barangay": station,
+                          "id_type": row_data.get("id_type", ""),
+                          "id_number": row_data.get("id_number", ""),
+                          "id_photo": row_data.get("id_photo", "")}
     except sqlite3.Error as e:
         print(f"[!] Auth error: {e}")
         return False, generic_fail
@@ -419,80 +434,72 @@ def validate_full_name(name):
     return True, cleaned
 
 
-def validate_resident_id(id_type, id_number):
+def validate_resident_id_photo(photo_path):
     """
-    Validates that a resident has provided a genuine, formatted valid ID.
-    Returns (True, cleaned_id_number) or (False, error_message).
+    Verifies that a valid picture file has been provided as proof of real identity.
+    Returns (True, clean_path) or (False, error_message).
     """
-    if not id_type or id_type not in VALID_RESIDENT_ID_TYPES:
-        return False, "Please select an accepted Valid ID type."
+    if not photo_path or not isinstance(photo_path, str) or not photo_path.strip():
+        return False, "Please attach a picture of your valid ID as proof of real identity."
 
-    if not id_number or not isinstance(id_number, str):
-        return False, "Please enter your Valid ID Number."
+    path = photo_path.strip()
+    if not os.path.isfile(path):
+        return False, "Selected ID photo file was not found. Please choose an image file."
 
-    clean_id = id_number.strip().upper()
-    if not clean_id:
-        return False, "Please enter your Valid ID Number."
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]:
+        return False, "Selected file must be an image (PNG, JPG, JPEG, WEBP, BMP)."
 
-    if len(clean_id) < 4:
-        return False, f"Valid ID Number for {id_type} must be at least 4 characters."
+    try:
+        with Image.open(path) as img:
+            img.verify()
+    except Exception:
+        return False, "The selected image file is corrupted or unreadable. Please choose a valid image."
 
-    if len(clean_id) > 30:
-        return False, "Valid ID Number is too long (maximum 30 characters)."
+    try:
+        size = os.path.getsize(path)
+        if size < 50:
+            return False, "Selected image file appears to be empty. Please choose a valid ID photo."
+        if size > 15 * 1024 * 1024:
+            return False, "Selected ID photo is too large (maximum 15 MB). Please choose a smaller file."
+    except OSError:
+        pass
 
-    # Must only contain alphanumeric characters, hyphens, slashes, or spaces
-    if not re.match(r"^[A-Z0-9\-\/\s]+$", clean_id):
-        return False, "Valid ID Number should only contain letters, numbers, hyphens, and slashes."
-
-    alnum = re.sub(r"[^A-Z0-9]", "", clean_id)
-    if len(alnum) < 3:
-        return False, "Valid ID Number must contain at least 3 letters or numbers."
-
-    if id_type == "PhilSys National ID":
-        digits_only = re.sub(r"[^0-9]", "", clean_id)
-        if len(digits_only) < 12:
-            return False, "PhilSys National ID must contain at least 12 digits (e.g. 1234-5678-9012-3456)."
-
-    elif id_type == "PhilHealth ID":
-        digits_only = re.sub(r"[^0-9]", "", clean_id)
-        if len(digits_only) < 10:
-            return False, "PhilHealth ID must contain at least 10-12 digits (e.g. 12-345678901-2)."
-
-    elif id_type == "UMID / SSS ID":
-        digits_only = re.sub(r"[^0-9]", "", clean_id)
-        if len(digits_only) < 9:
-            return False, "UMID / SSS ID must contain at least 9-12 digits (e.g. 0123-4567890-1)."
-
-    elif id_type == "Driver's License":
-        if len(alnum) < 7:
-            return False, "Driver's License number must be at least 7 alphanumeric characters (e.g. N01-23-456789)."
-
-    return True, clean_id
+    return True, path
 
 
-def check_id_number_unique(id_number, exclude_user_id=None):
-    """Checks if the ID number is already in use by another resident."""
-    clean_id = id_number.strip().upper()
-    if not clean_id:
-        return True, ""
+def get_id_photo_path(filename_or_path):
+    """Resolves an ID photo filename or path to an existing absolute file path, or empty string."""
+    if not filename_or_path:
+        return ""
+    if os.path.isabs(filename_or_path) and os.path.isfile(filename_or_path):
+        return filename_or_path
+    local_path = os.path.join(ID_PROOFS_DIR, os.path.basename(filename_or_path))
+    if os.path.isfile(local_path):
+        return local_path
+    root_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename_or_path)
+    if os.path.isfile(root_path):
+        return root_path
+    return ""
+
+
+def get_resident_id_photo(resident_full_name):
+    """Returns (id_type, photo_path_or_empty) for a registered resident."""
     try:
         with group4_get_database_connection() as db:
             cols = [r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()]
-            if "id_number" in cols:
-                query = "SELECT id, full_name FROM users WHERE upper(official_id) = ? OR upper(official_id) LIKE ? OR upper(id_number) = ?"
-                params = [clean_id, f"%{clean_id}%", clean_id]
-            else:
-                query = "SELECT id, full_name FROM users WHERE upper(official_id) = ? OR upper(official_id) LIKE ?"
-                params = [clean_id, f"%{clean_id}%"]
-            if exclude_user_id:
-                query += " AND id != ?"
-                params.append(exclude_user_id)
-            row = db.execute(query, params).fetchone()
-            if row:
-                return False, f"This Valid ID number is already registered to '{row[1]}'."
-            return True, ""
+            select_cols = ["id_type"]
+            if "id_photo" in cols:
+                select_cols.append("id_photo")
+            row = db.execute(f"SELECT {', '.join(select_cols)} FROM users WHERE lower(full_name) = ?",
+                             (resident_full_name.strip().lower(),)).fetchone()
+            if not row:
+                return "", ""
+            id_type = row[0] or "Valid ID"
+            photo = row[1] if len(row) > 1 and row[1] else ""
+            return id_type, get_id_photo_path(photo)
     except sqlite3.Error:
-        return True, ""
+        return "", ""
 
 
 def check_account_fields(name, password, confirm, email):
@@ -508,31 +515,33 @@ def check_account_fields(name, password, confirm, email):
     return None
 
 
-def create_user(name, password, role, official_id, station, email, success_msg, id_type="", id_number=""):
+def create_user(name, password, role, official_id, station, email, success_msg, id_type="", id_number="", id_photo=""):
     try:
         with group4_get_database_connection() as db:
             if db.execute("SELECT 1 FROM users WHERE lower(full_name) = ?", (name.lower(),)).fetchone():
                 return False, f"Full name '{name}' is already registered. Please use a different name."
             cols = [r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()]
-            if "id_type" in cols and "id_number" in cols:
-                db.execute(
-                    """INSERT INTO users (password, full_name, role, official_id, station_barangay, date_created, email, id_type, id_number)
-                       VALUES (?,?,?,?,?,?,?,?,?)""",
-                    (new_hash(password), name, role, official_id, station, str(date.today()), email, id_type, id_number))
-            else:
-                db.execute(
-                    """INSERT INTO users (password, full_name, role, official_id, station_barangay, date_created, email)
-                       VALUES (?,?,?,?,?,?,?)""",
-                    (new_hash(password), name, role, official_id, station, str(date.today()), email))
+            insert_cols = ["password", "full_name", "role", "official_id", "station_barangay", "date_created", "email"]
+            insert_vals = [new_hash(password), name, role, official_id, station, str(date.today()), email]
+            if "id_type" in cols:
+                insert_cols.append("id_type")
+                insert_vals.append(id_type)
+            if "id_number" in cols:
+                insert_cols.append("id_number")
+                insert_vals.append(id_number)
+            if "id_photo" in cols:
+                insert_cols.append("id_photo")
+                insert_vals.append(id_photo)
+            placeholders = ",".join(["?"] * len(insert_cols))
+            db.execute(f"INSERT INTO users ({', '.join(insert_cols)}) VALUES ({placeholders})", tuple(insert_vals))
         return True, success_msg
     except sqlite3.Error as e:
         return False, f"Database error during registration:\n{e}"
 
 
-def register_resident_user(full_name, password="", confirm_password="", email="", id_type="Barangay ID / Certificate", id_number=""):
+def register_resident_user(full_name, password="", confirm_password="", email="", id_type="Barangay ID / Certificate", id_photo_path=""):
     name, password, email = full_name.strip(), password.strip(), email.strip()
     id_type = id_type.strip() or VALID_RESIDENT_ID_TYPES[0]
-    id_number = id_number.strip()
     if not (name and password and confirm_password):
         return False, "Please fill in all registration fields."
     valid_name, name_res = validate_full_name(name)
@@ -540,24 +549,33 @@ def register_resident_user(full_name, password="", confirm_password="", email=""
         return False, name_res
     name = name_res
 
-    # Resident Valid ID verification
-    valid_id, id_res = validate_resident_id(id_type, id_number)
-    if not valid_id:
-        return False, id_res
-    clean_id = id_res
-
-    is_uniq, uniq_err = check_id_number_unique(clean_id)
-    if not is_uniq:
-        return False, uniq_err
+    # Validate attached ID photo proof of real identity
+    valid_photo, photo_res = validate_resident_id_photo(id_photo_path)
+    if not valid_photo:
+        return False, photo_res
 
     error = check_account_fields(name, password, confirm_password.strip(), email)
     if error:
         return False, error
 
-    official_id = f"{id_type}: {clean_id}"
+    # Copy ID photo to project's id_proofs directory
+    try:
+        ext = os.path.splitext(photo_res)[1].lower()
+        safe_name = re.sub(r"[^A-Za-z0-9_]", "_", name.lower())
+        saved_filename = f"id_{safe_name}_{int(datetime.now().timestamp())}{ext}"
+        dest_path = os.path.join(ID_PROOFS_DIR, saved_filename)
+        if os.path.abspath(photo_res) != os.path.abspath(dest_path):
+            shutil.copyfile(photo_res, dest_path)
+    except Exception:
+        saved_filename = os.path.basename(photo_res)
+
+    official_id = f"{id_type} (Photo Verified)"
     return create_user(name, password, ROLE_PATIENT, official_id, "Local Barangay", email,
-                        f"Resident account verified and created for {name}!\nValid ID: {id_type} ({clean_id})\n\nYou can now Sign In.",
-                        id_type=id_type, id_number=clean_id)
+                        f"Resident account verified and created for {name}!\n\n"
+                        f"• Valid ID Type: {id_type}\n"
+                        f"• Proof of Identity: Photo Verified ✓\n\n"
+                        "You can now Sign In with your full name.",
+                        id_type=id_type, id_photo=saved_filename)
 
 
 def register_official_user(full_name, password, confirm_password, role, official_id, station_barangay, auth_passcode, email=""):
