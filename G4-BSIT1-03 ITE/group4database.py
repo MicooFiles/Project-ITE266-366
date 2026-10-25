@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import smtplib
+import re
 import sqlite3
 import string
 import urllib.error
@@ -48,6 +49,33 @@ FLOOD_ALERT_WARNING = "Warning (Moderate)"
 FLOOD_ALERT_CRITICAL = "Critical (Evacuate)"
 FLOOD_ALERT_LEVELS = [FLOOD_ALERT_NORMAL, FLOOD_ALERT_LOW, FLOOD_ALERT_WARNING, FLOOD_ALERT_CRITICAL]
 FLOOD_STATUS_OPTIONS = ["Rising", "Stationary", "Receding"]
+
+# Accepted Valid IDs for Resident Verification (Philippine standard identification)
+VALID_RESIDENT_ID_TYPES = [
+    "Barangay ID / Certificate",
+    "PhilSys National ID",
+    "Student / School ID",
+    "Driver's License",
+    "UMID / SSS ID",
+    "PhilHealth ID",
+    "Voter's ID",
+    "Postal ID",
+    "Senior Citizen / PWD ID",
+    "Passport",
+]
+
+RESIDENT_ID_PLACEHOLDERS = {
+    "Barangay ID / Certificate": "e.g. BRGY-2026-0045",
+    "PhilSys National ID": "e.g. 1234-5678-9012-3456",
+    "Student / School ID": "e.g. 2026-10492-DG",
+    "Driver's License": "e.g. N01-23-456789",
+    "UMID / SSS ID": "e.g. 0123-4567890-1",
+    "PhilHealth ID": "e.g. 12-345678901-2",
+    "Voter's ID": "e.g. 5501-0123A-B123CD",
+    "Postal ID": "e.g. PR0123456789",
+    "Senior Citizen / PWD ID": "e.g. SC-DAG-2026-012",
+    "Passport": "e.g. P1234567A",
+}
 
 
 # ── Configuration (secrets come from environment variables, never from source) ──
@@ -188,7 +216,8 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL,
     official_id TEXT DEFAULT '', station_barangay TEXT DEFAULT '', date_created TEXT NOT NULL,
     failed_attempts INTEGER DEFAULT 0, locked_until TEXT DEFAULT '', email TEXT DEFAULT '',
-    reset_otp_hash TEXT DEFAULT '', reset_otp_expiry TEXT DEFAULT '', reset_otp_attempts INTEGER DEFAULT 0);
+    reset_otp_hash TEXT DEFAULT '', reset_otp_expiry TEXT DEFAULT '', reset_otp_attempts INTEGER DEFAULT 0,
+    id_type TEXT DEFAULT '', id_number TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS flood_monitoring (
     id INTEGER PRIMARY KEY AUTOINCREMENT, city TEXT NOT NULL, barangay TEXT NOT NULL,
     water_level_meters REAL NOT NULL, water_depth_desc TEXT NOT NULL, rainfall_rate_mm REAL NOT NULL,
@@ -211,7 +240,8 @@ _ADDED_COLUMNS = {
     "users": {"official_id": "TEXT DEFAULT ''", "station_barangay": "TEXT DEFAULT ''",
               "failed_attempts": "INTEGER DEFAULT 0", "locked_until": "TEXT DEFAULT ''", "email": "TEXT DEFAULT ''",
               "reset_otp_hash": "TEXT DEFAULT ''", "reset_otp_expiry": "TEXT DEFAULT ''",
-              "reset_otp_attempts": "INTEGER DEFAULT 0"},
+              "reset_otp_attempts": "INTEGER DEFAULT 0",
+              "id_type": "TEXT DEFAULT ''", "id_number": "TEXT DEFAULT ''"},
     "notifications": {"sms_result": "TEXT DEFAULT ''"},
 }
 
@@ -301,12 +331,19 @@ def authenticate_user(full_name, password):
         return False, generic_fail
     try:
         with group4_get_database_connection() as db:
-            row = db.execute(
-                """SELECT id, password, full_name, role, official_id, station_barangay, failed_attempts, locked_until
-                   FROM users WHERE lower(full_name) = ? OR (email != '' AND lower(email) = ?)""", (key, key)).fetchone()
+            cols = [r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()]
+            has_id_cols = "id_type" in cols and "id_number" in cols
+            select_sql = ("""SELECT id, password, full_name, role, official_id, station_barangay, failed_attempts, locked_until, id_type, id_number
+                            FROM users WHERE lower(full_name) = ? OR (email != '' AND lower(email) = ?)"""
+                          if has_id_cols else
+                          """SELECT id, password, full_name, role, official_id, station_barangay, failed_attempts, locked_until
+                            FROM users WHERE lower(full_name) = ? OR (email != '' AND lower(email) = ?)""")
+            row = db.execute(select_sql, (key, key)).fetchone()
             if not row:
                 return False, generic_fail
-            uid, stored, name, role, official_id, station, attempts, locked_until = row
+            uid, stored, name, role, official_id, station, attempts, locked_until = row[:8]
+            id_type_val = row[8] if has_id_cols and len(row) > 8 and row[8] else ""
+            id_num_val = row[9] if has_id_cols and len(row) > 9 and row[9] else ""
             attempts = attempts or 0
 
             if locked_until:
@@ -333,15 +370,135 @@ def authenticate_user(full_name, password):
             if not stored.startswith("pbkdf2:"):   # silently upgrade legacy hashes
                 db.execute("UPDATE users SET password = ? WHERE id = ?", (new_hash(password), uid))
             return True, {"id": uid, "full_name": name, "role": role,
-                          "official_id": official_id or "", "station_barangay": station or ""}
+                          "official_id": official_id or "", "station_barangay": station or "",
+                          "id_type": id_type_val, "id_number": id_num_val}
     except sqlite3.Error as e:
         print(f"[!] Auth error: {e}")
         return False, generic_fail
 
 
+def validate_full_name(name):
+    """
+    Validates that the input represents a complete and realistic full name.
+    Detects if the user failed to provide both first and last names,
+    used numbers or illegal characters, or entered incomplete names.
+    Returns (True, cleaned_name) or (False, error_message).
+    """
+    if not name or not isinstance(name, str):
+        return False, "Please enter your full name."
+
+    # Normalize whitespace
+    cleaned = " ".join(name.strip().split())
+    if not cleaned:
+        return False, "Please enter your full name."
+
+    # Minimum total length (e.g. 'Al Ng' is 5 chars with space)
+    if len(cleaned) < 4:
+        return False, "Full name is too short. Please enter your complete first and last name."
+
+    # Only allow letters (including accents and ñ/Ñ), spaces, hyphens, apostrophes, and dots
+    if not re.match(r"^[A-Za-z\u00C0-\u024F\u1E00-\u1EFF\s\.\'\-]+$", cleaned):
+        return False, "Full name must only contain letters, spaces, hyphens, and periods (no numbers or symbols)."
+
+    # Split into words/parts
+    parts = cleaned.split()
+    if len(parts) < 2:
+        return False, "Please enter your full name (both first and last name, e.g. 'Juan Dela Cruz')."
+
+    # Ensure every part contains at least one letter
+    for part in parts:
+        letters = re.sub(r"[^A-Za-z\u00C0-\u024F\u1E00-\u1EFF]", "", part)
+        if not letters:
+            return False, "Each part of the name must contain letters."
+
+    # Must have at least two parts with letters, and at least one part with 2+ letters
+    letters_per_part = [len(re.sub(r"[^A-Za-z\u00C0-\u024F\u1E00-\u1EFF]", "", p)) for p in parts]
+    if sum(letters_per_part) < 4 or max(letters_per_part) < 2:
+        return False, "Please enter a valid, complete first and last name."
+
+    return True, cleaned
+
+
+def validate_resident_id(id_type, id_number):
+    """
+    Validates that a resident has provided a genuine, formatted valid ID.
+    Returns (True, cleaned_id_number) or (False, error_message).
+    """
+    if not id_type or id_type not in VALID_RESIDENT_ID_TYPES:
+        return False, "Please select an accepted Valid ID type."
+
+    if not id_number or not isinstance(id_number, str):
+        return False, "Please enter your Valid ID Number."
+
+    clean_id = id_number.strip().upper()
+    if not clean_id:
+        return False, "Please enter your Valid ID Number."
+
+    if len(clean_id) < 4:
+        return False, f"Valid ID Number for {id_type} must be at least 4 characters."
+
+    if len(clean_id) > 30:
+        return False, "Valid ID Number is too long (maximum 30 characters)."
+
+    # Must only contain alphanumeric characters, hyphens, slashes, or spaces
+    if not re.match(r"^[A-Z0-9\-\/\s]+$", clean_id):
+        return False, "Valid ID Number should only contain letters, numbers, hyphens, and slashes."
+
+    alnum = re.sub(r"[^A-Z0-9]", "", clean_id)
+    if len(alnum) < 3:
+        return False, "Valid ID Number must contain at least 3 letters or numbers."
+
+    if id_type == "PhilSys National ID":
+        digits_only = re.sub(r"[^0-9]", "", clean_id)
+        if len(digits_only) < 12:
+            return False, "PhilSys National ID must contain at least 12 digits (e.g. 1234-5678-9012-3456)."
+
+    elif id_type == "PhilHealth ID":
+        digits_only = re.sub(r"[^0-9]", "", clean_id)
+        if len(digits_only) < 10:
+            return False, "PhilHealth ID must contain at least 10-12 digits (e.g. 12-345678901-2)."
+
+    elif id_type == "UMID / SSS ID":
+        digits_only = re.sub(r"[^0-9]", "", clean_id)
+        if len(digits_only) < 9:
+            return False, "UMID / SSS ID must contain at least 9-12 digits (e.g. 0123-4567890-1)."
+
+    elif id_type == "Driver's License":
+        if len(alnum) < 7:
+            return False, "Driver's License number must be at least 7 alphanumeric characters (e.g. N01-23-456789)."
+
+    return True, clean_id
+
+
+def check_id_number_unique(id_number, exclude_user_id=None):
+    """Checks if the ID number is already in use by another resident."""
+    clean_id = id_number.strip().upper()
+    if not clean_id:
+        return True, ""
+    try:
+        with group4_get_database_connection() as db:
+            cols = [r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()]
+            if "id_number" in cols:
+                query = "SELECT id, full_name FROM users WHERE upper(official_id) = ? OR upper(official_id) LIKE ? OR upper(id_number) = ?"
+                params = [clean_id, f"%{clean_id}%", clean_id]
+            else:
+                query = "SELECT id, full_name FROM users WHERE upper(official_id) = ? OR upper(official_id) LIKE ?"
+                params = [clean_id, f"%{clean_id}%"]
+            if exclude_user_id:
+                query += " AND id != ?"
+                params.append(exclude_user_id)
+            row = db.execute(query, params).fetchone()
+            if row:
+                return False, f"This Valid ID number is already registered to '{row[1]}'."
+            return True, ""
+    except sqlite3.Error:
+        return True, ""
+
+
 def check_account_fields(name, password, confirm, email):
-    if len(name) < 2:
-        return "Full Name must be at least 2 characters."
+    valid_name, err = validate_full_name(name)
+    if not valid_name:
+        return err
     if len(password) < 4:
         return "Password must be at least 4 characters."
     if password != confirm:
@@ -351,29 +508,56 @@ def check_account_fields(name, password, confirm, email):
     return None
 
 
-def create_user(name, password, role, official_id, station, email, success_msg):
+def create_user(name, password, role, official_id, station, email, success_msg, id_type="", id_number=""):
     try:
         with group4_get_database_connection() as db:
             if db.execute("SELECT 1 FROM users WHERE lower(full_name) = ?", (name.lower(),)).fetchone():
                 return False, f"Full name '{name}' is already registered. Please use a different name."
-            db.execute(
-                """INSERT INTO users (password, full_name, role, official_id, station_barangay, date_created, email)
-                   VALUES (?,?,?,?,?,?,?)""",
-                (new_hash(password), name, role, official_id, station, str(date.today()), email))
+            cols = [r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()]
+            if "id_type" in cols and "id_number" in cols:
+                db.execute(
+                    """INSERT INTO users (password, full_name, role, official_id, station_barangay, date_created, email, id_type, id_number)
+                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (new_hash(password), name, role, official_id, station, str(date.today()), email, id_type, id_number))
+            else:
+                db.execute(
+                    """INSERT INTO users (password, full_name, role, official_id, station_barangay, date_created, email)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (new_hash(password), name, role, official_id, station, str(date.today()), email))
         return True, success_msg
     except sqlite3.Error as e:
         return False, f"Database error during registration:\n{e}"
 
 
-def register_resident_user(full_name, password="", confirm_password="", email=""):
+def register_resident_user(full_name, password="", confirm_password="", email="", id_type="Barangay ID / Certificate", id_number=""):
     name, password, email = full_name.strip(), password.strip(), email.strip()
+    id_type = id_type.strip() or VALID_RESIDENT_ID_TYPES[0]
+    id_number = id_number.strip()
     if not (name and password and confirm_password):
         return False, "Please fill in all registration fields."
+    valid_name, name_res = validate_full_name(name)
+    if not valid_name:
+        return False, name_res
+    name = name_res
+
+    # Resident Valid ID verification
+    valid_id, id_res = validate_resident_id(id_type, id_number)
+    if not valid_id:
+        return False, id_res
+    clean_id = id_res
+
+    is_uniq, uniq_err = check_id_number_unique(clean_id)
+    if not is_uniq:
+        return False, uniq_err
+
     error = check_account_fields(name, password, confirm_password.strip(), email)
     if error:
         return False, error
-    return create_user(name, password, ROLE_PATIENT, "RESIDENT", "Local Barangay", email,
-                        f"Resident account created for {name}! You can now Sign In.")
+
+    official_id = f"{id_type}: {clean_id}"
+    return create_user(name, password, ROLE_PATIENT, official_id, "Local Barangay", email,
+                        f"Resident account verified and created for {name}!\nValid ID: {id_type} ({clean_id})\n\nYou can now Sign In.",
+                        id_type=id_type, id_number=clean_id)
 
 
 def register_official_user(full_name, password, confirm_password, role, official_id, station_barangay, auth_passcode, email=""):
@@ -383,6 +567,10 @@ def register_official_user(full_name, password, confirm_password, role, official
     passcode = auth_passcode.strip().upper()
     if not all([name, password, confirm_password, role, official_id, station, passcode]):
         return False, "All fields and verification credentials are required."
+    valid_name, name_res = validate_full_name(name)
+    if not valid_name:
+        return False, name_res
+    name = name_res
     if passcode not in OFFICIAL_WILDCARE_SECURITY_PASSCODES:
         return False, "Invalid LGU / Clinic Authorization Passcode!\nOnly verified government or health staff are permitted."
     if role not in REGISTRATION_OFFICIALS_ROLES:
@@ -619,6 +807,10 @@ def check_age(age):
 
 def add_patient_record(full_name, age, sex, barangay, disease, status, date_logged, display_order=None):
     """Adds a case at the top of the queue. Returns (True, new_id) or (False, error)."""
+    valid_name, res = validate_full_name(full_name)
+    if not valid_name:
+        return False, res
+    full_name = res
     age_n, error = check_age(age)
     if error:
         return False, error
@@ -650,6 +842,10 @@ def get_patient_records_by_account(patient_name=""):
 
 
 def update_patient_record(record_id, full_name, age, sex, barangay, disease, status, date_logged):
+    valid_name, res = validate_full_name(full_name)
+    if not valid_name:
+        return False, res
+    full_name = res
     rec_id = to_int(record_id)
     age_n, error = check_age(age)
     if rec_id is None:

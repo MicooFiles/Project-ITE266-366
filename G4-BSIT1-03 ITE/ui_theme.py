@@ -193,13 +193,19 @@ def combo(parent, values, default=None, height=38, **kw):
     return box
 
 
-def field(parent, text, kind="entry", values=None, default=None, placeholder="", show=None, pady=(0, 10), height=38):
+def field(parent, text, kind="entry", values=None, default=None, placeholder="", show=None, pady=(0, 10), height=38, command=None, **kw):
     """Label above an entry or dropdown; returns the input widget."""
     label(parent, text, "label", "muted", anchor="w").pack(fill="x", pady=(0, 4))
     if kind == "combo":
-        widget = combo(parent, values, default, height=height)
+        combo_kw = dict(kw)
+        if command:
+            combo_kw["command"] = command
+        widget = combo(parent, values, default, height=height, **combo_kw)
     else:
-        widget = entry(parent, placeholder, height=height, **({"show": show} if show else {}))
+        entry_kw = dict(kw)
+        if show:
+            entry_kw["show"] = show
+        widget = entry(parent, placeholder, height=height, **entry_kw)
     widget.pack(fill="x", pady=pady)
     return widget
 

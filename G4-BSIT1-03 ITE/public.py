@@ -90,7 +90,17 @@ class PatientPortalWindow:
         who = customtkinter.CTkFrame(side, fg_color=COLOR_THEME_NAMIN["side_hover"], corner_radius=ui.R_CTRL)
         who.pack(fill="x", padx=16, pady=(0, 18))
         ui.label(who, "Signed in as", "small", "side_muted", anchor="w").pack(fill="x", padx=14, pady=(10, 0))
-        ui.label(who, self.full_name, "bodybold", "side_text", anchor="w", wraplength=200, justify="left").pack(fill="x", padx=14, pady=(0, 10))
+        ui.label(who, self.full_name, "bodybold", "side_text", anchor="w", wraplength=200, justify="left").pack(fill="x", padx=14, pady=(0, 4))
+        off_id = self.user_info.get("official_id", "")
+        id_type = self.user_info.get("id_type", "")
+        id_num = self.user_info.get("id_number", "")
+        if id_type and id_num:
+            id_str = f"✓ Verified Resident\n{id_type} · {id_num}"
+        elif off_id and off_id != "RESIDENT":
+            id_str = f"✓ Verified Resident\n{off_id}"
+        else:
+            id_str = "Verified Resident Account"
+        ui.label(who, id_str, "small", "side_accent", anchor="w", wraplength=200, justify="left").pack(fill="x", padx=14, pady=(0, 10))
 
         self.nav = {}
         for key, text in PAGES:

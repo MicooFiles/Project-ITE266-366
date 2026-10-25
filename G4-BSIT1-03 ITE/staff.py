@@ -137,6 +137,13 @@ class AdminDashboardWindow:
         box.pack(fill="both", expand=True, padx=18, pady=16)
         ui.label(box, "Patient record", "title", anchor="w").pack(fill="x", pady=(0, 12))
         self.f_name = ui.field(box, "Full name", placeholder="e.g. Graizler Untalan", pady=(0, 6), height=34)
+        def on_patient_name_blur(event):
+            val = self.f_name.get().strip()
+            if val:
+                ok, err = group4database.validate_full_name(val)
+                if not ok:
+                    self.flash(f"⚠️ {err}", "warn", reset=True, delay=4500)
+        self.f_name.bind("<FocusOut>", on_patient_name_blur)
         left, right = self.field_pair(box)
         self.f_age = ui.field(left, "Age", placeholder="e.g. 67", pady=(0, 6), height=34)
         self.f_sex = ui.field(right, "Sex", "combo", ["Male", "Female", "Other"], "Male", pady=(0, 6), height=34)
@@ -217,11 +224,18 @@ class AdminDashboardWindow:
     # ── Patient CRUD ─────────────────────────────────────────────────────────
     def read_form(self):
         place = f"{self.f_brgy.get().strip()}, {self.f_area.get()}" if self.f_brgy.get().strip() and self.f_area.get() else ""
-        values = [self.f_name.get().strip(), self.f_age.get().strip(), self.f_sex.get(), place,
+        raw_name = self.f_name.get().strip()
+        values = [raw_name, self.f_age.get().strip(), self.f_sex.get(), place,
                   self.f_disease.get().strip(), self.f_status.get(), self.f_date.get().strip()]
         if not all(values):
             messagebox.showwarning("Validation error", "All fields are required (including city and barangay).")
             return None
+        valid_name, name_res = group4database.validate_full_name(raw_name)
+        if not valid_name:
+            messagebox.showwarning("Full Name Required", f"Incomplete full name:\n{name_res}\n\nPlease enter the complete name (first and last name, e.g. 'Graizler Untalan').")
+            self.f_name.focus_set()
+            return None
+        values[0] = name_res
         return values
 
     def create_record(self):

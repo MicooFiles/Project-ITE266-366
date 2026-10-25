@@ -103,7 +103,7 @@ class LoginWindow:
         ui.label(view, "Welcome back", "title", anchor="w").pack(fill="x")
         ui.label(view, "Sign in with your full name or email.", "body", "muted", anchor="w").pack(fill="x", pady=(2, 18))
 
-        self.entry_user = ui.field(view, "Full name or email", placeholder="e.g. a Jairus Mj Corro")
+        self.entry_user = ui.field(view, "Full name or email", placeholder="e.g. Jairus Mj Corro")
         label_row = ui.row(view)
         label_row.pack(fill="x")
         ui.label(label_row, "Password", "label", "muted", anchor="w").pack(side="left", pady=(0, 4))
@@ -128,15 +128,74 @@ class LoginWindow:
 
     def build_register(self, view):
         ui.label(view, "Create a resident account", "title", anchor="w").pack(fill="x")
-        ui.label(view, "Health worker accounts are issued by the LGU.", "body", "muted", anchor="w").pack(fill="x", pady=(2, 18))
-        self.reg_name = ui.field(view, "Full name", placeholder="e.g. Ronaldo jr. V. Deguzman", pady=(0, 8))
-        self.reg_email = ui.field(view, "Email (for 6-digit recovery codes)", placeholder="e.g. ronaldojr@gmail.com", pady=(0, 8))
-        self.reg_pass = ui.field(view, "Password", placeholder="At least 4 characters", show="•", pady=(0, 8))
-        self.reg_conf = ui.field(view, "Confirm password", placeholder="Re-type your password", show="•", pady=(0, 6))
+        ui.label(view, "Sign up with your verified government or school ID.", "body", "muted", anchor="w").pack(fill="x", pady=(2, 12))
+        self.reg_name = ui.field(view, "Full name", placeholder="e.g. Ronaldo jr. V. Deguzman", pady=(0, 6))
+
+        id_row = ui.row(view)
+        id_row.pack(fill="x", pady=(0, 6))
+        id_row.grid_columnconfigure((0, 1), weight=1)
+        id_left, id_right = ui.row(id_row), ui.row(id_row)
+        id_left.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        id_right.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        def on_id_type_change(choice):
+            ph = group4database.RESIDENT_ID_PLACEHOLDERS.get(choice, "e.g. ID-2026-00123")
+            self.reg_id_num.configure(placeholder_text=ph)
+            val = self.reg_id_num.get().strip()
+            if val:
+                on_id_blur(None)
+
+        self.reg_id_type = ui.field(id_left, "Valid ID type", kind="combo",
+                                    values=group4database.VALID_RESIDENT_ID_TYPES,
+                                    default=group4database.VALID_RESIDENT_ID_TYPES[0],
+                                    pady=(0, 0), height=34, command=on_id_type_change)
+        default_id_ph = group4database.RESIDENT_ID_PLACEHOLDERS.get(group4database.VALID_RESIDENT_ID_TYPES[0], "e.g. BRGY-2026-0045")
+        self.reg_id_num = ui.field(id_right, "Valid ID / Document no.",
+                                   placeholder=default_id_ph,
+                                   pady=(0, 0), height=34)
+
+        self.reg_email = ui.field(view, "Email (for 6-digit recovery codes)", placeholder="e.g. ronaldojr@gmail.com", pady=(0, 6))
+
+        pw_row = ui.row(view)
+        pw_row.pack(fill="x", pady=(0, 6))
+        pw_row.grid_columnconfigure((0, 1), weight=1)
+        pw_left, pw_right = ui.row(pw_row), ui.row(pw_row)
+        pw_left.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        pw_right.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        self.reg_pass = ui.field(pw_left, "Password", placeholder="At least 4 characters", show="•", pady=(0, 0), height=34)
+        self.reg_conf = ui.field(pw_right, "Confirm password", placeholder="Re-type your password", show="•", pady=(0, 0), height=34)
+
         self.lbl_reg = ui.label(view, "", "small", "danger", anchor="w", wraplength=400, justify="left")
-        self.lbl_reg.pack(fill="x", pady=(0, 8))
-        ui.button(view, "Create resident account", self.handle_register, height=46).pack(fill="x")
+        self.lbl_reg.pack(fill="x", pady=(4, 6))
+        ui.button(view, "Verify ID & create resident account", self.handle_register, height=44).pack(fill="x")
         self.reg_conf.bind("<Return>", lambda e: self.handle_register())
+        self.reg_id_num.bind("<Return>", lambda e: self.handle_register())
+
+        def on_name_blur(event):
+            val = self.reg_name.get().strip()
+            if val:
+                ok, err = group4database.validate_full_name(val)
+                if not ok:
+                    self.lbl_reg.configure(text=f"⚠️ {err}", text_color=COLOR_THEME_NAMIN["warn"])
+                elif self.lbl_reg.cget("text").startswith("⚠️"):
+                    self.lbl_reg.configure(text="")
+        self.reg_name.bind("<FocusOut>", on_name_blur)
+
+        def on_id_blur(event):
+            val = self.reg_id_num.get().strip()
+            if val:
+                ok, res = group4database.validate_resident_id(self.reg_id_type.get(), val)
+                if not ok:
+                    self.lbl_reg.configure(text=f"⚠️ {res}", text_color=COLOR_THEME_NAMIN["warn"])
+                    return
+                ok_u, err_u = group4database.check_id_number_unique(res)
+                if not ok_u:
+                    self.lbl_reg.configure(text=f"⚠️ {err_u}", text_color=COLOR_THEME_NAMIN["warn"])
+                    return
+                self.lbl_reg.configure(text=f"✓ Valid ID verified: {self.reg_id_type.get()}", text_color=COLOR_THEME_NAMIN["ok"])
+            elif self.lbl_reg.cget("text").startswith("✓"):
+                self.lbl_reg.configure(text="")
+        self.reg_id_num.bind("<FocusOut>", on_id_blur)
 
     def toggle_password(self):
         self._pwd_visible = not self._pwd_visible
@@ -163,17 +222,43 @@ class LoginWindow:
 
     def handle_register(self):
         name = self.reg_name.get().strip()
-        ok, msg = group4database.register_resident_user(name, self.reg_pass.get().strip(), self.reg_conf.get().strip(),
-                                                        self.reg_email.get().strip())
-        if not ok:
-            self.lbl_reg.configure(text=msg)
+        ok_name, name_res = group4database.validate_full_name(name)
+        if not ok_name:
+            self.lbl_reg.configure(text=name_res, text_color=COLOR_THEME_NAMIN["danger"])
+            self.reg_name.focus_set()
             return
-        messagebox.showinfo("Account created", f"Welcome to W.I.L.D. CARE by GROUP4 BSIT1-03, {name}!\n\nYou can now sign in with your full name.")
-        for widget in (self.reg_name, self.reg_email, self.reg_pass, self.reg_conf):
+
+        id_type = self.reg_id_type.get()
+        id_num = self.reg_id_num.get().strip()
+        ok_id, id_res = group4database.validate_resident_id(id_type, id_num)
+        if not ok_id:
+            self.lbl_reg.configure(text=id_res, text_color=COLOR_THEME_NAMIN["danger"])
+            self.reg_id_num.focus_set()
+            return
+
+        ok_uniq, uniq_err = group4database.check_id_number_unique(id_res)
+        if not ok_uniq:
+            self.lbl_reg.configure(text=uniq_err, text_color=COLOR_THEME_NAMIN["danger"])
+            self.reg_id_num.focus_set()
+            return
+
+        ok, msg = group4database.register_resident_user(
+            name_res, self.reg_pass.get().strip(), self.reg_conf.get().strip(),
+            self.reg_email.get().strip(), id_type=id_type, id_number=id_res)
+        if not ok:
+            self.lbl_reg.configure(text=msg, text_color=COLOR_THEME_NAMIN["danger"])
+            return
+
+        messagebox.showinfo(
+            "Resident account verified",
+            f"Welcome to W.I.L.D. CARE by GROUP4 BSIT1-03, {name_res}!\n\n"
+            f"Your Valid ID has been verified:\n• {id_type}: {id_res}\n\n"
+            "You can now sign in with your full name.")
+        for widget in (self.reg_name, self.reg_id_num, self.reg_email, self.reg_pass, self.reg_conf):
             widget.delete(0, "end")
         self.lbl_reg.configure(text="")
         self.show_view("Sign in")
-        ui.set_text(self.entry_user, name)
+        ui.set_text(self.entry_user, name_res)
         self.entry_pass.delete(0, "end")
         self.entry_pass.focus_set()
 
